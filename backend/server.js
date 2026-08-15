@@ -108,6 +108,8 @@ app.get('/health', (_req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+// Railway 등 컨테이너 환경에서는 호스트를 명시하지 않으면 외부 프록시가
+// 접속하지 못하는 경우가 있어 0.0.0.0에 명시적으로 바인딩한다.
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`서버가 ${PORT}번 포트에서 실행 중입니다.`);
 });

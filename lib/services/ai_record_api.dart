@@ -2,13 +2,12 @@ import 'dart:convert';
 
 import 'package:http/http.dart' as http;
 
-// [07] 백엔드 서버 주소. Railway 배포 후에는 아래 defaultValue를 실제 배포
-// URL로 바꾸거나, 빌드 시 --dart-define=API_BASE_URL=https://xxxx.up.railway.app
-// 로 지정한다. 기본값은 안드로이드 에뮬레이터에서 개발 PC의 localhost:3000
-// (백엔드 로컬 실행)에 접속하기 위한 주소다.
+// [09] 백엔드 서버 주소. Railway에 배포된 실제 URL을 기본값으로 쓴다.
+// 로컬 백엔드로 다시 테스트하려면 빌드 시
+// --dart-define=API_BASE_URL=http://10.0.2.2:3000 로 덮어쓴다.
 const String kApiBaseUrl = String.fromEnvironment(
   'API_BASE_URL',
-  defaultValue: 'http://10.0.2.2:3000',
+  defaultValue: 'https://fearless-comfort-production-d70f.up.railway.app',
 );
 
 /// [07] /generate 호출이 실패했을 때 던지는 예외. 실패 사유(네트워크 오류,
