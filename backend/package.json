@@ -1,0 +1,18 @@
+{
+  "name": "care-record-backend",
+  "version": "1.0.0",
+  "private": true,
+  "description": "방문요양 상태변화기록지 앱의 AI 기록 생성 백엔드 (Express + Claude API)",
+  "main": "server.js",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.32.1",
+    "cors": "^2.8.5",
+    "express": "^4.19.2"
+  }
+}
