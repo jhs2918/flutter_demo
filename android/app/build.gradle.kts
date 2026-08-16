@@ -34,6 +34,13 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // R8 code shrinking was stripping something WorkManager/Room needs via
+            // reflection (pulled in transitively by google_mobile_ads /
+            // webview_flutter_android), crashing on startup with
+            // "Failed to create an instance of androidx.work.impl.WorkDatabase".
+            // Disabling minification avoids that whole class of breakage.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
     }
 }
