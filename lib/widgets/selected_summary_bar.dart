@@ -14,7 +14,9 @@ class SelectedSummaryBar extends StatelessWidget {
     required this.canGenerate,
     required this.onRemove,
     required this.onGenerate,
-    required this.onSave,
+    required this.onReset,
+    required this.onViewAutoLog,
+    required this.onViewMySaved,
   });
 
   final List<SelectedButtonEntry> selectedEntries;
@@ -23,8 +25,11 @@ class SelectedSummaryBar extends StatelessWidget {
   final bool canGenerate;
   final void Function(RecordSubCategory subCategory, String label) onRemove;
   final VoidCallback onGenerate;
-  // [02-10] 선택된 버튼이 있을 때만 단어 조합을 저장할 수 있어 null이면 비활성화한다.
-  final VoidCallback? onSave;
+  // [D-A] 선택된 버튼이 있을 때만 초기화할 수 있어 null이면 비활성화한다.
+  final VoidCallback? onReset;
+  // [저장개편] 화면 맨 아래에서 자동 로그 / 내 저장 목록 화면으로 이동한다.
+  final VoidCallback onViewAutoLog;
+  final VoidCallback onViewMySaved;
 
   @override
   Widget build(BuildContext context) {
@@ -41,11 +46,23 @@ class SelectedSummaryBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
-              Text(
-                // [06] 전체 카테고리 통틀어 최대 kMaxSelectedButtons개까지
-                // 선택 가능해, 현재 개수를 "N/10" 형태의 카운터로 보여준다.
-                '선택한 항목 (${selectedEntries.length}/$kMaxSelectedButtons)',
-                style: Theme.of(context).textTheme.labelLarge,
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(
+                      // [06] 전체 카테고리 통틀어 최대 kMaxSelectedButtons개까지
+                      // 선택 가능해, 현재 개수를 "N/10" 형태의 카운터로 보여준다.
+                      '선택한 항목 (${selectedEntries.length}/$kMaxSelectedButtons)',
+                      style: Theme.of(context).textTheme.labelLarge,
+                    ),
+                  ),
+                  // [D-A] 선택된 항목을 한 번에 모두 초기화하는 버튼.
+                  TextButton.icon(
+                    onPressed: onReset,
+                    icon: const Text('🗑️'),
+                    label: const Text('초기화'),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               ConstrainedBox(
@@ -73,20 +90,33 @@ class SelectedSummaryBar extends StatelessWidget {
                       ),
               ),
               const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton.icon(
+                  onPressed: canGenerate ? onGenerate : null,
+                  icon: const Icon(Icons.auto_awesome),
+                  label: const Text('AI 기록 생성'),
+                ),
+              ),
+              const SizedBox(height: 8),
+              // [저장개편] 자동 로그(기록 보기) / 내 저장 목록으로 이동하는
+              // 버튼을 화면 맨 아래에 항상 노출한다.
               Row(
                 children: <Widget>[
                   Expanded(
-                    child: FilledButton.icon(
-                      onPressed: canGenerate ? onGenerate : null,
-                      icon: const Icon(Icons.auto_awesome),
-                      label: const Text('AI 기록 생성'),
+                    child: OutlinedButton.icon(
+                      onPressed: onViewAutoLog,
+                      icon: const Icon(Icons.history),
+                      label: const Text('기록 보기'),
                     ),
                   ),
                   const SizedBox(width: 8),
-                  OutlinedButton.icon(
-                    onPressed: onSave,
-                    icon: const Text('💾'),
-                    label: const Text('저장'),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: onViewMySaved,
+                      icon: const Icon(Icons.star_border),
+                      label: const Text('내 저장'),
+                    ),
                   ),
                 ],
               ),
