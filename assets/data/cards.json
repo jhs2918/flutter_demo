@@ -1,0 +1,120 @@
+{
+  "categories": [
+    {
+      "id": "swallowing",
+      "name": "③ 식사·영양",
+      "service": "all",
+      "groups": [
+        {
+          "name": "연하 상태",
+          "items": [
+            { "label": "연하곤란호소", "grades": ["1", "2"], "service": "all", "type": "status" },
+            { "label": "자주사래들림", "grades": ["1", "2"], "service": "all", "type": "status" },
+            { "label": "삼키기힘들어함", "grades": ["2", "3"], "service": "all", "type": "status" },
+            { "label": "칵칵거림", "grades": ["2", "3"], "service": "all", "type": "status" },
+            { "label": "이상없음", "grades": [], "service": "all", "type": "status" }
+          ]
+        },
+        {
+          "name": "식사 행동",
+          "items": [
+            { "label": "식사보조제공함", "grades": ["1", "2"], "service": "all", "type": "status" },
+            { "label": "천천히씹어서섭취함", "grades": ["2", "3"], "service": "all", "type": "status" },
+            { "label": "자립으로식사함", "grades": ["4", "5"], "service": "all", "type": "status" },
+            { "label": "식욕왕성함", "grades": [], "service": "all", "type": "status" }
+          ]
+        },
+        {
+          "name": "조치",
+          "items": [
+            { "label": "경관영양확인함", "grades": ["1", "2"], "service": "all", "type": "action" },
+            { "label": "부드러운음식으로변경함", "grades": ["2", "3"], "service": "all", "type": "action" },
+            { "label": "식사속도조절안내함", "grades": ["3", "4"], "service": "all", "type": "action" },
+            { "label": "수분섭취독려함", "grades": [], "service": "all", "type": "action" },
+            { "label": "센터급식상태기록함", "grades": [], "service": "day", "type": "action" },
+            { "label": "귀가시식사상태보호자전달함", "grades": [], "service": "day", "type": "action" }
+          ]
+        },
+        {
+          "name": "수치 입력",
+          "items": [
+            { "label": "수분 섭취량", "unit": "ml", "input": "number" },
+            { "label": "식사 제공횟수", "unit": "회", "input": "number" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "mobility",
+      "name": "① 신체기능 (이동·보행)",
+      "service": "all",
+      "groups": [
+        {
+          "name": "현재 이동 상태",
+          "items": [
+            { "label": "완전도움", "grades": ["1", "2"], "service": "all", "type": "status" },
+            { "label": "부분도움", "grades": ["2", "3"], "service": "all", "type": "status" },
+            { "label": "보조필요", "grades": ["3", "4"], "service": "all", "type": "status" },
+            { "label": "자립보행", "grades": ["4", "5"], "service": "all", "type": "status" },
+            { "label": "독립이동", "grades": ["4", "5"], "service": "all", "type": "status" },
+            { "label": "양호함", "grades": ["3", "4", "5"], "service": "all", "type": "status" }
+          ]
+        },
+        {
+          "name": "관찰 증상",
+          "items": [
+            { "label": "하반신마비", "grades": ["1", "2"], "service": "all", "type": "status" },
+            { "label": "보행불안정", "grades": ["2", "3"], "service": "all", "type": "status" },
+            { "label": "균형흔들림", "grades": ["2", "3"], "service": "all", "type": "status" },
+            { "label": "낙상위험있음", "grades": ["3", "4", "5", "인지"], "service": "all", "type": "status" },
+            { "label": "기력없음", "grades": ["4", "5"], "service": "all", "type": "status" }
+          ]
+        },
+        {
+          "name": "조치",
+          "items": [
+            { "label": "이승보조제공함", "grades": ["1", "2"], "service": "all", "type": "action" },
+            { "label": "부축해드림", "grades": ["2", "3"], "service": "all", "type": "action" },
+            { "label": "손잡이를잡게함", "grades": ["3", "4", "5", "인지"], "service": "all", "type": "action" },
+            { "label": "낙상주의안내함", "grades": ["3", "4", "5", "인지"], "service": "all", "type": "action" },
+            { "label": "보호자에게알림", "grades": [], "service": "all", "type": "action" },
+            { "label": "프로그램중이동보조함", "grades": [], "service": "day", "type": "action" },
+            { "label": "센터내안전이동유도함", "grades": [], "service": "day", "type": "action" }
+          ]
+        },
+        {
+          "name": "수치 입력",
+          "items": [
+            { "label": "체위변경 횟수", "unit": "회", "input": "number" }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "homeEnvironment",
+      "name": "㉒ 주거환경 점검",
+      "service": "visit",
+      "groups": [
+        {
+          "name": "환경 위험요인",
+          "items": [
+            { "label": "바닥미끄러움", "grades": ["1", "2"], "service": "visit", "type": "status" },
+            { "label": "문턱걸림위험", "grades": ["1", "2"], "service": "visit", "type": "status" },
+            { "label": "안전손잡이없음", "grades": ["2", "3"], "service": "visit", "type": "status" },
+            { "label": "정리정돈필요", "grades": ["3", "4"], "service": "visit", "type": "status" },
+            { "label": "주거환경양호", "grades": [], "service": "visit", "type": "status" }
+          ]
+        },
+        {
+          "name": "조치",
+          "items": [
+            { "label": "보호자에게환경개선요청함", "grades": ["1", "2"], "service": "visit", "type": "action" },
+            { "label": "장애물정리함", "grades": ["1", "2"], "service": "visit", "type": "action" },
+            { "label": "미끄럼방지매트권유함", "grades": ["3", "4"], "service": "visit", "type": "action" },
+            { "label": "안전환경점검완료", "grades": [], "service": "visit", "type": "action" }
+          ]
+        }
+      ]
+    }
+  ]
+}

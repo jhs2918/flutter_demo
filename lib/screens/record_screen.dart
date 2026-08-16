@@ -23,6 +23,10 @@ import 'ai_result_screen.dart';
 import 'auto_log_screen.dart';
 import 'my_saved_screen.dart';
 
+// [전면개편] 카드 아래 단어 선택 영역이 펼쳐지고/접히는 AnimatedSize 애니메이션
+// 길이. 카드를 전환할 때 스크롤 목표 위치 계산도 이 값을 기준으로 기다린다.
+const Duration _kPanelAnimationDuration = Duration(milliseconds: 220);
+
 /// [02][전면개편] 기록작성화면: 대분류(섹션) → 카드형 소분류 → 단어 선택
 /// 영역의 3단계 구조로 방문 기록을 작성하는 화면.
 class RecordScreen extends StatefulWidget {
@@ -408,13 +412,24 @@ class _RecordScreenState extends State<RecordScreen> {
     _expandAndScrollTo(categoryId);
   }
 
-  // [전면개편] 카드를 펼치고, 다음 프레임에 화면 상단으로 부드럽게 스크롤한다.
+  // [전면개편] 카드를 펼치고, 화면을 그 카드 위치로 부드럽게 스크롤한다.
+  // 이미 다른 카드가 펼쳐져 있던 경우에는 그 카드가 접히는 애니메이션이
+  // 끝나 레이아웃이 완전히 자리잡을 때까지 기다린 뒤 스크롤 목표 위치를
+  // 계산한다 - 그렇지 않으면 접힘/펼침 애니메이션이 동시에 진행되는 동안
+  // 목표 위치가 계속 바뀌어 스크롤이 엉뚱한 곳으로 가거나 아예 안 움직이는
+  // 것처럼 보인다.
   void _expandAndScrollTo(String categoryId) {
+    final bool wasSwitchingFromAnotherCard =
+        _expandedCategoryId != null && _expandedCategoryId != categoryId;
     setState(() => _expandedCategoryId = categoryId);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (wasSwitchingFromAnotherCard) {
+        await Future<void>.delayed(_kPanelAnimationDuration);
+      }
+      if (!mounted || _expandedCategoryId != categoryId) return;
       final BuildContext? cardContext = _categoryKeys[categoryId]?.currentContext;
-      if (cardContext == null) return;
+      if (cardContext == null || !cardContext.mounted) return;
       Scrollable.ensureVisible(
         cardContext,
         duration: const Duration(milliseconds: 300),
@@ -727,7 +742,7 @@ class _RecordScreenState extends State<RecordScreen> {
 
       rows.add(
         AnimatedSize(
-          duration: const Duration(milliseconds: 220),
+          duration: _kPanelAnimationDuration,
           curve: Curves.easeInOut,
           alignment: Alignment.topCenter,
           child: expandedInChunk == null

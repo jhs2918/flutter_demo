@@ -1,61 +1,70 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:flutter_demo/main.dart';
 
+// [낱말카드 개편] 앱을 켜면 서비스 선택 → 등급 선택 → 카드 선택으로 이어지는
+// 새 급여제공기록 플로우가 바로 뜨는지 확인한다.
 void main() {
-  // 각 테스트 전에 SharedPreferences를 빈 값으로 초기화하여 저장소를 격리한다.
-  setUp(() {
-    SharedPreferences.setMockInitialValues(<String, Object>{});
-  });
-
-  // [전면개편] 앱을 켜면 개인정보 입력 없이 바로 기록작성화면(5개 대분류 + 19개 카드)이
-  // 표시되는지 확인한다. 카드를 펼치기 전에는 단어 선택 영역(버튼 추가 등)이 보이지 않는다.
-  testWidgets('앱을 실행하면 5개 대분류와 카드형 소분류가 있는 기록 작성 화면이 표시된다',
-      (WidgetTester tester) async {
+  testWidgets('앱을 실행하면 방문요양/주간보호 서비스 선택 화면이 표시된다', (WidgetTester tester) async {
     await tester.pumpWidget(const CareRecorderApp());
     await tester.pumpAndSettle();
 
-    expect(find.text('기록 작성'), findsOneWidget);
-    expect(find.text('신체 증상'), findsOneWidget);
-    expect(find.text('생활 기능'), findsOneWidget);
-    expect(find.text('정서·인지'), findsOneWidget);
-    expect(find.text('활력·투약'), findsOneWidget);
-    expect(find.text('조치·기록'), findsOneWidget);
-    expect(find.text('통증'), findsOneWidget);
-    expect(find.text('기타'), findsOneWidget);
-    // 아직 어떤 카드도 펼치지 않았으므로 단어 선택 영역은 보이지 않는다.
-    expect(find.text('버튼 추가'), findsNothing);
-    expect(find.text('기타 직접입력'), findsNothing);
+    expect(find.text('방문요양'), findsOneWidget);
+    expect(find.text('주간보호'), findsOneWidget);
   });
 
-  // 카드를 펼친 뒤 "버튼 추가"로 커스텀 버튼을 만들면 해당 세부 그룹에 칩으로 나타나는지 확인한다.
-  testWidgets('카드를 펼치고 버튼 추가로 커스텀 버튼을 만들면 목록에 나타난다',
-      (WidgetTester tester) async {
+  testWidgets('방문요양을 고르면 등급 선택 화면에 인지지원등급이 없다', (WidgetTester tester) async {
     await tester.pumpWidget(const CareRecorderApp());
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('이동·보행'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('이동·보행'));
+    await tester.tap(find.text('방문요양'));
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('버튼 추가').first);
+    expect(find.text('1등급'), findsOneWidget);
+    await tester.ensureVisible(find.text('5등급'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('버튼 추가').first);
+    expect(find.text('5등급'), findsOneWidget);
+    // 인지지원등급은 주간보호 전용이라 방문요양에서는 절대 노출되면 안 된다.
+    expect(find.text('인지지원등급'), findsNothing);
+  });
+
+  testWidgets('주간보호를 고르면 등급 선택 화면에 인지지원등급이 있다', (WidgetTester tester) async {
+    await tester.pumpWidget(const CareRecorderApp());
     await tester.pumpAndSettle();
 
-    await tester.enterText(
-      find.descendant(
-        of: find.byType(AlertDialog),
-        matching: find.byType(TextField),
-      ),
-      '보행 보조',
-    );
-    await tester.tap(find.text('추가'));
+    await tester.tap(find.text('주간보호'));
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(FilterChip, '보행 보조'), findsOneWidget);
+    expect(find.text('인지지원등급'), findsOneWidget);
+  });
+
+  testWidgets('등급을 고르면 카드 선택 화면에 카테고리가 표시된다', (WidgetTester tester) async {
+    await tester.pumpWidget(const CareRecorderApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('방문요양'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('3등급'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('식사·영양'), findsOneWidget);
+    expect(find.textContaining('신체기능'), findsOneWidget);
+    // 주거환경 점검 카테고리는 방문요양 전용이라 방문요양을 골랐을 때 보여야 한다.
+    expect(find.textContaining('주거환경'), findsOneWidget);
+    expect(find.text('선택 항목 0개'), findsOneWidget);
+  });
+
+  testWidgets('주간보호로는 방문 전용 카테고리(주거환경 점검)가 보이지 않는다', (
+    WidgetTester tester,
+  ) async {
+    await tester.pumpWidget(const CareRecorderApp());
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('주간보호'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('3등급'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('주거환경'), findsNothing);
   });
 }
