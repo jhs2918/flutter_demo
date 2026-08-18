@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:google_mobile_ads/google_mobile_ads.dart';
@@ -6,10 +7,12 @@ import 'screens/service_select_screen.dart';
 import 'state/font_scale_controller.dart';
 import 'theme/pastel_palette.dart';
 
-// 앱 진입점. [AdMob] 전면광고 SDK를 앱 시작 시 한 번 초기화해둔다.
+// 앱 진입점. [AdMob] 전면광고 SDK를 앱 시작 시 한 번 초기화해둔다. google_mobile_ads는
+// 웹 플랫폼 구현체가 없어 웹에서 호출하면 MissingPluginException이 발생하므로
+// 웹에서는 초기화 자체를 건너뛴다.
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
-  MobileAds.instance.initialize();
+  if (!kIsWeb) MobileAds.instance.initialize();
   runApp(const CareRecorderApp());
 }
 
