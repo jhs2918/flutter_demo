@@ -180,7 +180,15 @@ app.post('/generate', async (req, res) => {
 
     const parsed = parseStatusActionObject(text);
     if (!parsed) {
-      console.error('AI 응답 형식 오류(status/action JSON 아님):', text);
+      console.error(
+        'AI 응답 형식 오류(status/action JSON 아님):',
+        JSON.stringify({
+          text,
+          stop_reason: message.stop_reason,
+          usage: message.usage,
+          blockTypes: message.content.map((b) => b.type),
+        }),
+      );
       return res
         .status(502)
         .json({ error: 'AI 응답 형식 오류입니다. 잠시 후 다시 시도해주세요.' });
