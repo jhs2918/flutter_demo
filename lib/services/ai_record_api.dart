@@ -62,4 +62,45 @@ class AiRecordApi {
       throw const AiRecordApiException();
     }
   }
+
+  /// [10] 조치를 선택하지 않고 결과 확인을 눌렀을 때, 선택된 상태 키워드를
+  /// 분석해 상황에 맞는 조치 2~3개를 추천받는다.
+  Future<List<String>> suggestActions({
+    required List<String> statusKeywords,
+    String? facilityType,
+    String? recordType,
+  }) async {
+    final http.Response response;
+    try {
+      response = await http
+          .post(
+            Uri.parse('$baseUrl/suggest-actions'),
+            headers: const <String, String>{
+              'Content-Type': 'application/json',
+            },
+            body: jsonEncode(<String, Object?>{
+              'statusKeywords': statusKeywords,
+              'facilityType': ?facilityType,
+              'recordType': ?recordType,
+            }),
+          )
+          .timeout(const Duration(seconds: 20));
+    } on Object {
+      throw const AiRecordApiException();
+    }
+
+    if (response.statusCode != 200) {
+      throw const AiRecordApiException();
+    }
+
+    try {
+      final Map<String, dynamic> decoded =
+          jsonDecode(response.body) as Map<String, dynamic>;
+      final List<dynamic>? suggestions =
+          decoded['suggestions'] as List<dynamic>?;
+      return suggestions?.cast<String>() ?? const <String>[];
+    } on Object {
+      throw const AiRecordApiException();
+    }
+  }
 }

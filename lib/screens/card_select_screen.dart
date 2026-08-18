@@ -1,34 +1,46 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/card_catalog.dart';
+import '../models/saved_card_combination.dart';
 import '../services/ai_record_api.dart';
 import '../services/card_catalog_repository.dart';
+import '../services/custom_card_item_repository.dart';
+import '../services/saved_card_combination_repository.dart';
 import '../state/font_scale_controller.dart';
 import '../theme/pastel_palette.dart';
 import '../widgets/ai_generating_dialog.dart';
 import '../widgets/font_scale_bar.dart';
 import 'ai_generation_result_screen.dart';
 
-// 등급 강조 배경색. 선택 여부(테두리+체크)와는 완전히 다른 시각 채널이라야
-// 하므로, "선택됨" 강조에 쓰는 보라 계열과 겹치지 않는 색을 쓴다.
-const Color _kHighlightBg = Color(0xFFFFE49A);
-const Color _kHighlightText = Color(0xFF7A5B00);
 const Color _kNeutralBg = Color(0xFFF1F1F1);
 const Color _kNeutralText = Color(0xFF444444);
+// 내가 직접 추가한 낱말카드를 구분하는 색(연두). 선택 테두리(보라)와
+// 겹쳐도 헷갈리지 않도록 다른 색상 계열을 쓴다.
+const Color _kCustomBg = Color(0xFFD8F5DE);
+const Color _kCustomText = Color(0xFF1B6B3A);
+// 값이 입력된 입력 카드 강조색.
+const Color _kNumberFilledBg = Color(0xFFF3E9FF);
 
-/// [낱말카드 개편][3단계] 카테고리(접기/펼치기) → 그룹 → 항목 카드를 보여주고
-/// 선택하는 화면. 등급에 해당하는 항목은 강조 + 그룹 안에서 맨 위로
-/// 정렬되고, 서비스 종류에 맞지 않는 카테고리/항목은 숨긴다.
+// [공통버튼_조치상황] 전역 모듈 - 어떤 카테고리에서도 최하단에 고정으로
+// 붙는 공통 버튼. 데이터(cards.json)에 카테고리마다 반복해서 넣지 않고
+// 화면에서 매 카테고리 그룹 목록 끝에 덧붙인다.
+const String _kCareLevelGroupName = '조치상황';
+
+/// [낱말카드 개편 v2][3단계] 카테고리(접기/펼치기) → 그룹 → 항목 카드를 보여주고
+/// 선택하는 화면. 시설·기록유형에 맞는 카테고리만 이미 cards.json에서 갈라져
+/// 있으므로 이 화면에서는 별도 필터링 없이 그대로 보여준다(등급 개념 없음).
 class CardSelectScreen extends StatefulWidget {
   const CardSelectScreen({
     super.key,
     required this.service,
-    required this.grade,
+    required this.recordTypeId,
+    required this.recordTypeLabel,
   });
 
   final CardService service;
-  // "1"~"5" 또는 "인지".
-  final String grade;
+  final String recordTypeId;
+  final String recordTypeLabel;
 
   @override
   State<CardSelectScreen> createState() => _CardSelectScreenState();
@@ -36,12 +48,25 @@ class CardSelectScreen extends StatefulWidget {
 
 class _CardSelectScreenState extends State<CardSelectScreen> {
   final CardCatalogRepository _repository = CardCatalogRepository();
+  final CustomCardItemRepository _customRepository = CustomCardItemRepository();
+  final SavedCardCombinationRepository _savedRepository =
+      SavedCardCombinationRepository();
   final AiRecordApi _aiRecordApi = const AiRecordApi();
   final TextEditingController _opinionController = TextEditingController();
 
   CardCatalog? _catalog;
   final Set<String> _selected = <String>{};
   final Map<String, String> _numericValues = <String, String>{};
+  // [10] 조치 없이 결과 확인을 눌렀을 때 추천받아 사용자가 고른 조치.
+  // 재요청(onRegenerate) 시에도 같은 세션 동안은 계속 포함시킨다.
+  List<String> _recommendedActions = <String>[];
+  // "categoryId::groupName" -> 사용자가 직접 추가한 라벨 목록.
+  Map<String, List<String>> _customItems = <String, List<String>>{};
+  // 이름 붙여 저장한 카드 선택 + AI 결과 목록. 최근 저장순으로 정렬해 둔다.
+  List<SavedCardCombination> _savedCombinations = <SavedCardCombination>[];
+  // 카테고리 펼침 시 그 위치로 스크롤하기 위한 카드별 키.
+  final Map<String, GlobalKey> _categoryKeys = <String, GlobalKey>{};
+  final ScrollController _scrollController = ScrollController();
 
   @override
   void initState() {
@@ -52,39 +77,111 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   @override
   void dispose() {
     _opinionController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
   Future<void> _load() async {
     final CardCatalog catalog = await _repository.load();
+    final Map<String, List<String>> customItems = await _customRepository
+        .load();
+    await _loadSavedCombinations();
     if (!mounted) return;
-    setState(() => _catalog = catalog);
+    setState(() {
+      _catalog = catalog;
+      _customItems = customItems;
+    });
+  }
+
+  Future<void> _loadSavedCombinations() async {
+    final List<SavedCardCombination> combos = await _savedRepository.load();
+    combos.sort(
+      (SavedCardCombination a, SavedCardCombination b) =>
+          b.savedAt.compareTo(a.savedAt),
+    );
+    if (!mounted) return;
+    setState(() => _savedCombinations = combos);
   }
 
   String _key(CardCategory category, CardGroup group, CardItem item) =>
       '${category.id}::${group.name}::${item.label}';
 
-  String get _gradeLabel =>
-      widget.grade == '인지' ? '인지지원등급' : '${widget.grade}등급';
+  String _groupKey(CardCategory category, CardGroup group) =>
+      '${category.id}::${group.name}';
+
+  GlobalKey _keyFor(String categoryId) =>
+      _categoryKeys.putIfAbsent(categoryId, GlobalKey.new);
+
+  String get _facilityLabel =>
+      widget.service == CardService.visit ? '방문요양' : '주간보호';
 
   List<CardCategory> get _visibleCategories {
     final CardCatalog? catalog = _catalog;
     if (catalog == null) return const <CardCategory>[];
-    return catalog.categories
-        .where((CardCategory c) => c.service.visibleFor(widget.service))
-        .toList();
+    return catalog
+            .recordTypeFor(widget.service, widget.recordTypeId)
+            ?.categories ??
+        const <CardCategory>[];
   }
 
-  // 등급 강조 항목을 그룹 안에서 맨 위로, 나머지는 원래 순서 그대로 뒤에
-  // 남긴다(List.sort는 안정 정렬이 보장되지 않아 where()로 직접 나눈다).
-  List<CardItem> _sortedItems(List<CardItem> items) {
-    final List<CardItem> highlighted = items
-        .where((CardItem i) => i.isHighlightedFor(widget.grade))
-        .toList();
-    final List<CardItem> rest = items
-        .where((CardItem i) => !i.isHighlightedFor(widget.grade))
-        .toList();
-    return <CardItem>[...highlighted, ...rest];
+  // 카테고리의 실제 그룹 + 모든 카테고리 최하단에 고정으로 붙는 공통
+  // 조치상황 버튼 그룹.
+  List<CardGroup> _groupsFor(CardCategory category) => <CardGroup>[
+    ...category.groups,
+    const CardGroup(
+      name: _kCareLevelGroupName,
+      items: <CardItem>[
+        CardItem(label: '스스로하기'),
+        CardItem(label: '지켜보기'),
+        CardItem(label: '부분도움'),
+        CardItem(label: '완전도움'),
+      ],
+    ),
+  ];
+
+  // 그룹 안의 기본 제공 항목 + 사용자가 추가한 커스텀 항목을 합친다.
+  List<CardItem> _itemsWithCustom(CardCategory category, CardGroup group) {
+    final List<String> customLabels =
+        _customItems[_groupKey(category, group)] ?? const <String>[];
+    if (customLabels.isEmpty) return group.items;
+
+    return <CardItem>[
+      ...group.items,
+      for (final String label in customLabels) CardItem(label: label),
+    ];
+  }
+
+  bool _isCustom(CardCategory category, CardGroup group, String label) {
+    final List<String>? customLabels = _customItems[_groupKey(category, group)];
+    return customLabels != null && customLabels.contains(label);
+  }
+
+  // 공통 조치상황 그룹은 고정 어휘라 커스텀 추가를 허용하지 않는다. 그 외
+  // 그룹은 입력 전용(그룹의 모든 항목이 입력 필드)이 아니면 추가할 수 있다.
+  bool _allowsCustomAdd(CardGroup group) =>
+      group.name != _kCareLevelGroupName &&
+      group.items.any((CardItem i) => !i.isInputField);
+
+  // [10] "조치" 그룹인지 판단한다. "조치" 단독 그룹뿐 아니라 "복약도움 조치"
+  // 처럼 접미어로 붙는 경우도 포함하되, 공통 조치상황(스스로하기/지켜보기/
+  // 부분도움/완전도움) 그룹은 다른 개념이라 제외한다("조치상황"은 "조치"로
+  // 끝나지 않으므로 자연히 제외됨).
+  bool _isActionGroupName(String name) => name.endsWith('조치');
+
+  bool get _hasActionGroupsAvailable => _visibleCategories.any(
+    (CardCategory c) => c.groups.any((CardGroup g) => _isActionGroupName(g.name)),
+  );
+
+  bool get _hasAnyActionSelected {
+    for (final CardCategory category in _visibleCategories) {
+      for (final CardGroup group in category.groups) {
+        if (!_isActionGroupName(group.name)) continue;
+        for (final CardItem item in _itemsWithCustom(category, group)) {
+          if (_selected.contains(_key(category, group, item))) return true;
+        }
+      }
+    }
+    return false;
   }
 
   void _toggle(String key) {
@@ -97,43 +194,199 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     });
   }
 
+  // 선택 키("categoryId::groupName::label")에서 화면에 보여줄 라벨만 뽑는다.
+  String _labelForKey(String key) => key.split('::').last;
+
+  void _clearAllSelected() {
+    if (_selected.isEmpty) return;
+    setState(() => _selected.clear());
+  }
+
+  // 저장/불러오기 키는 카테고리+그룹+라벨로만 만들어지므로, 저장할 때와
+  // 다른 시설·기록유형 화면에서 불러와도 겹치는 항목은 그대로 맞는다.
+  void _applyCombination(SavedCardCombination combo) {
+    setState(() {
+      _selected
+        ..clear()
+        ..addAll(combo.selectedKeys);
+      _numericValues
+        ..clear()
+        ..addAll(combo.numericValues);
+      _opinionController.text = combo.opinion;
+    });
+  }
+
+  Future<void> _saveCombination(
+    String name,
+    List<SavedResultEntry> results,
+  ) async {
+    final SavedCardCombination combo = SavedCardCombination(
+      name: name,
+      savedAt: DateTime.now(),
+      selectedKeys: _selected.toList(),
+      numericValues: <String, String>{
+        for (final MapEntry<String, String> entry in _numericValues.entries)
+          if (entry.value.trim().isNotEmpty) entry.key: entry.value,
+      },
+      opinion: _opinionController.text.trim(),
+      results: results,
+    );
+    final List<SavedCardCombination> updated =
+        <SavedCardCombination>[
+          ..._savedCombinations.where(
+            (SavedCardCombination c) => c.name != name,
+          ),
+          combo,
+        ]..sort(
+          (SavedCardCombination a, SavedCardCombination b) =>
+              b.savedAt.compareTo(a.savedAt),
+        );
+    setState(() => _savedCombinations = updated);
+    await _savedRepository.save(updated);
+  }
+
+  Future<void> _deleteCombination(String name) async {
+    final List<SavedCardCombination> updated = _savedCombinations
+        .where((SavedCardCombination c) => c.name != name)
+        .toList();
+    setState(() => _savedCombinations = updated);
+    await _savedRepository.save(updated);
+  }
+
+  Future<void> _showSavedCombinationSheet(SavedCardCombination combo) async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      backgroundColor: kAppBackground,
+      builder: (BuildContext sheetContext) => _SavedCombinationSheet(
+        combination: combo,
+        labelOf: _labelForKey,
+        onLoad: () {
+          _applyCombination(combo);
+          Navigator.of(sheetContext).pop();
+        },
+        onDelete: () async {
+          await _deleteCombination(combo.name);
+          if (!sheetContext.mounted) return;
+          Navigator.of(sheetContext).pop();
+        },
+      ),
+    );
+  }
+
+  // 카테고리가 펼쳐지면 다음 프레임에 그 카드 위치로 부드럽게 스크롤한다.
+  void _handleExpansion(String categoryId, bool expanded) {
+    if (!expanded) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final BuildContext? cardContext =
+          _categoryKeys[categoryId]?.currentContext;
+      if (cardContext == null || !cardContext.mounted) return;
+      Scrollable.ensureVisible(
+        cardContext,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        alignment: 0.0,
+      );
+    });
+  }
+
+  Future<void> _addCustomItem(CardCategory category, CardGroup group) async {
+    final String? label = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => const _AddCardDialog(),
+    );
+    if (label == null || label.trim().isEmpty) return;
+    final String trimmed = label.trim();
+    final String key = _groupKey(category, group);
+    final List<String> existing = _customItems[key] ?? const <String>[];
+    if (existing.contains(trimmed) ||
+        group.items.any((CardItem i) => i.label == trimmed)) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('이미 있는 카드입니다.')));
+      return;
+    }
+
+    setState(() {
+      _customItems = <String, List<String>>{
+        ..._customItems,
+        key: <String>[...existing, trimmed],
+      };
+    });
+    await _customRepository.save(_customItems);
+  }
+
+  Future<void> _deleteCustomItem(
+    CardCategory category,
+    CardGroup group,
+    String label,
+  ) async {
+    final bool confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            title: const Text('카드 삭제'),
+            content: Text('"$label" 카드를 삭제할까요?'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('삭제'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    final String key = _groupKey(category, group);
+    setState(() {
+      final List<String> updated = <String>[
+        ...(_customItems[key] ?? <String>[]),
+      ]..remove(label);
+      _customItems = <String, List<String>>{..._customItems, key: updated};
+      _selected.remove('${category.id}::${group.name}::$label');
+      _numericValues.remove('${category.id}::${group.name}::$label');
+    });
+    await _customRepository.save(_customItems);
+  }
+
   Map<String, List<String>> _buildPayload({String? additionalRequest}) {
-    final List<String> statusLabels = <String>[];
-    final List<String> actionLabels = <String>[];
-    final List<String> numericLines = <String>[];
+    final Map<String, List<String>> payload = <String, List<String>>{
+      '시설유형': <String>[_facilityLabel],
+      '기록유형': <String>[widget.recordTypeLabel],
+    };
+    final List<String> inputLines = <String>[];
 
     for (final CardCategory category in _visibleCategories) {
-      for (final CardGroup group in category.groups) {
-        for (final CardItem item in group.items) {
-          if (!item.service.visibleFor(widget.service)) continue;
+      final List<String> picked = <String>[];
+      for (final CardGroup group in _groupsFor(category)) {
+        for (final CardItem item in _itemsWithCustom(category, group)) {
           final String key = _key(category, group, item);
-          if (item.isNumberInput) {
+          if (item.isInputField) {
             final String? value = _numericValues[key];
             if (value != null && value.trim().isNotEmpty) {
-              numericLines.add(
-                '${item.label} ${value.trim()}${item.unit ?? ''}',
+              inputLines.add(
+                '${category.name}·${item.label} ${value.trim()}${item.unit ?? ''}',
               );
             }
           } else if (_selected.contains(key)) {
-            if (item.type == 'action') {
-              actionLabels.add(item.label);
-            } else {
-              statusLabels.add(item.label);
-            }
+            picked.add(item.label);
           }
         }
       }
+      if (picked.isNotEmpty) payload[category.name] = picked;
     }
 
     final String opinion = _opinionController.text.trim();
-    final Map<String, List<String>> payload = <String, List<String>>{
-      '서비스종류': <String>[widget.service == CardService.visit ? '방문요양' : '주간보호'],
-      '등급': <String>[_gradeLabel],
-      if (statusLabels.isNotEmpty) '관찰된상태': statusLabels,
-      if (actionLabels.isNotEmpty) '제공한조치': actionLabels,
-      if (numericLines.isNotEmpty) '수치입력': numericLines,
-      if (opinion.isNotEmpty) '수급자의견': <String>[opinion],
-    };
+    if (inputLines.isNotEmpty) payload['입력값'] = inputLines;
+    if (opinion.isNotEmpty) payload['수급자의견'] = <String>[opinion];
+    if (_recommendedActions.isNotEmpty) payload['조치'] = _recommendedActions;
     if (additionalRequest != null && additionalRequest.trim().isNotEmpty) {
       payload['추가요청'] = <String>[additionalRequest.trim()];
     }
@@ -146,7 +399,51 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     return _numericValues.values.any((String v) => v.trim().isNotEmpty);
   }
 
+  // [10] 조치 항목 없이 결과 확인을 눌렀을 때, 선택된 상태 키워드로 조치를
+  // 추천받아 팝업으로 보여준다. 조치를 이미 선택했거나 추천할 조치 그룹
+  // 자체가 없는 기록유형이면 그냥 넘어간다.
+  Future<void> _maybeSuggestActions() async {
+    if (_hasAnyActionSelected || !_hasActionGroupsAvailable) return;
+    final List<String> statusKeywords = _selected.map(_labelForKey).toList();
+    if (statusKeywords.isEmpty) return;
+
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) =>
+          const AiGeneratingDialog(message: '상태에 맞는 조치를 분석하고 있어요...'),
+    );
+
+    List<String> suggestions;
+    try {
+      suggestions = await _aiRecordApi.suggestActions(
+        statusKeywords: statusKeywords,
+        facilityType: _facilityLabel,
+        recordType: widget.recordTypeLabel,
+      );
+    } on AiRecordApiException {
+      // 추천은 부가 기능이므로 실패해도 조용히 넘어가고 문장 생성은 계속한다.
+      suggestions = const <String>[];
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop();
+    if (suggestions.isEmpty) return;
+
+    final List<String>? chosen = await showDialog<List<String>>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext context) =>
+          _ActionSuggestionDialog(suggestions: suggestions),
+    );
+    if (!mounted || chosen == null) return;
+    setState(() => _recommendedActions = chosen);
+  }
+
   Future<void> _generate() async {
+    _recommendedActions = <String>[];
+    await _maybeSuggestActions();
+    if (!mounted) return;
+
     final Map<String, List<String>> payload = _buildPayload();
 
     showDialog<void>(
@@ -175,9 +472,12 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
           onRegenerate: (String additionalRequest) => _aiRecordApi.generate(
             _buildPayload(additionalRequest: additionalRequest),
           ),
+          onSave: _saveCombination,
         ),
       ),
     );
+    // 결과 화면에서 저장했을 수 있으니 목록을 새로 불러온다.
+    await _loadSavedCombinations();
   }
 
   @override
@@ -188,7 +488,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     return Scaffold(
       backgroundColor: kAppBackground,
       appBar: AppBar(
-        title: const Text('카드 선택'),
+        title: Text(widget.recordTypeLabel),
         backgroundColor: kSectionHeaderBg,
         foregroundColor: Colors.white,
       ),
@@ -197,6 +497,11 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
           : Column(
               children: <Widget>[
                 const FontScaleBar(),
+                if (_savedCombinations.isNotEmpty)
+                  _SavedCombinationsBar(
+                    combinations: _savedCombinations,
+                    onTap: _showSavedCombinationSheet,
+                  ),
                 Padding(
                   padding: const EdgeInsets.symmetric(
                     horizontal: 16,
@@ -205,7 +510,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                   child: Row(
                     children: <Widget>[
                       Text(
-                        '$_gradeLabel · ${widget.service == CardService.visit ? "방문요양" : "주간보호"}',
+                        '${widget.recordTypeLabel} · $_facilityLabel',
                         style: const TextStyle(
                           fontWeight: FontWeight.w700,
                           color: kSubHeaderColor,
@@ -223,35 +528,42 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                   ),
                 ),
                 // [버그 회피] ListView(children:)도 내부적으로 Sliver를 쓰기
-                // 때문에 뷰포트 근처 항목만 지연 생성된다. 카테고리가 26개로
-                // 늘어날 다음 단계를 대비해, 전부 즉시 빌드하는
+                // 때문에 뷰포트 근처 항목만 지연 생성된다. 카테고리가 많은
+                // 기록유형(간호 및 처치 등)을 대비해 전부 즉시 빌드하는
                 // SingleChildScrollView + Column으로 만든다.
                 Expanded(
                   child: SingleChildScrollView(
+                    controller: _scrollController,
                     padding: const EdgeInsets.fromLTRB(12, 0, 12, 16),
                     child: Column(
                       children: <Widget>[
                         for (final CardCategory category in _visibleCategories)
-                          _CategoryPanel(
-                            category: category,
-                            scale: scale,
-                            sortedItemsOf: _sortedItems,
-                            visibleItemsOf: (List<CardItem> items) => items
-                                .where(
-                                  (CardItem i) =>
-                                      i.service.visibleFor(widget.service),
-                                )
-                                .toList(),
-                            keyOf: (CardGroup group, CardItem item) =>
-                                _key(category, group, item),
-                            isSelected: _selected.contains,
-                            isHighlighted: (CardItem item) =>
-                                item.isHighlightedFor(widget.grade),
-                            onToggle: _toggle,
-                            numericValues: _numericValues,
-                            onNumericChanged: (String key, String value) {
-                              setState(() => _numericValues[key] = value);
-                            },
+                          KeyedSubtree(
+                            key: _keyFor(category.id),
+                            child: _CategoryPanel(
+                              category: category,
+                              scale: scale,
+                              groups: _groupsFor(category),
+                              itemsOf: (CardGroup group) =>
+                                  _itemsWithCustom(category, group),
+                              keyOf: (CardGroup group, CardItem item) =>
+                                  _key(category, group, item),
+                              isSelected: _selected.contains,
+                              isCustom: (CardGroup group, String label) =>
+                                  _isCustom(category, group, label),
+                              allowsCustomAdd: _allowsCustomAdd,
+                              onToggle: _toggle,
+                              onAddCustom: (CardGroup group) =>
+                                  _addCustomItem(category, group),
+                              onDeleteCustom: (CardGroup group, String label) =>
+                                  _deleteCustomItem(category, group, label),
+                              numericValues: _numericValues,
+                              onNumericChanged: (String key, String value) {
+                                setState(() => _numericValues[key] = value);
+                              },
+                              onExpansionChanged: (bool expanded) =>
+                                  _handleExpansion(category.id, expanded),
+                            ),
                           ),
                         _OpinionSection(
                           controller: _opinionController,
@@ -261,6 +573,19 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                     ),
                   ),
                 ),
+                if (_selected.isNotEmpty)
+                  _SelectedItemsBar(
+                    scale: scale,
+                    labels: _selected.map(_labelForKey).toList(),
+                    onRemove: (String label) {
+                      final String? key = _selected.cast<String?>().firstWhere(
+                        (String? k) => k != null && _labelForKey(k) == label,
+                        orElse: () => null,
+                      );
+                      if (key != null) _toggle(key);
+                    },
+                    onClearAll: _clearAllSelected,
+                  ),
                 SafeArea(
                   top: false,
                   child: Padding(
@@ -281,30 +606,103 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   }
 }
 
+// [10] 조치 없이 결과 확인을 눌렀을 때 뜨는 팝업. AI가 추천한 조치 2~3개를
+// 토글로 고를 수 있고, [선택 완료]는 고른 조치를, [조치 없이 계속]은 빈
+// 목록을 반환한다. 둘 중 하나를 눌러야만 닫힌다(뒤로가기로 닫히지 않음).
+class _ActionSuggestionDialog extends StatefulWidget {
+  const _ActionSuggestionDialog({required this.suggestions});
+
+  final List<String> suggestions;
+
+  @override
+  State<_ActionSuggestionDialog> createState() =>
+      _ActionSuggestionDialogState();
+}
+
+class _ActionSuggestionDialogState extends State<_ActionSuggestionDialog> {
+  final Set<String> _picked = <String>{};
+
+  @override
+  Widget build(BuildContext context) {
+    return PopScope(
+      canPop: false,
+      child: AlertDialog(
+        title: const Text('조치를 선택하지 않으셨어요'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: <Widget>[
+            const Text('선택하신 상태에 어울리는 조치를 추천해드려요.'),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: <Widget>[
+                for (final String suggestion in widget.suggestions)
+                  FilterChip(
+                    label: Text(suggestion),
+                    selected: _picked.contains(suggestion),
+                    onSelected: (bool selected) {
+                      setState(() {
+                        if (selected) {
+                          _picked.add(suggestion);
+                        } else {
+                          _picked.remove(suggestion);
+                        }
+                      });
+                    },
+                  ),
+              ],
+            ),
+          ],
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(const <String>[]),
+            child: const Text('조치 없이 계속'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(_picked.toList()),
+            child: const Text('선택 완료'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _CategoryPanel extends StatelessWidget {
   const _CategoryPanel({
     required this.category,
     required this.scale,
-    required this.sortedItemsOf,
-    required this.visibleItemsOf,
+    required this.groups,
+    required this.itemsOf,
     required this.keyOf,
     required this.isSelected,
-    required this.isHighlighted,
+    required this.isCustom,
+    required this.allowsCustomAdd,
     required this.onToggle,
+    required this.onAddCustom,
+    required this.onDeleteCustom,
     required this.numericValues,
     required this.onNumericChanged,
+    required this.onExpansionChanged,
   });
 
   final CardCategory category;
   final double scale;
-  final List<CardItem> Function(List<CardItem> items) sortedItemsOf;
-  final List<CardItem> Function(List<CardItem> items) visibleItemsOf;
+  final List<CardGroup> groups;
+  final List<CardItem> Function(CardGroup group) itemsOf;
   final String Function(CardGroup group, CardItem item) keyOf;
   final bool Function(String key) isSelected;
-  final bool Function(CardItem item) isHighlighted;
+  final bool Function(CardGroup group, String label) isCustom;
+  final bool Function(CardGroup group) allowsCustomAdd;
   final ValueChanged<String> onToggle;
+  final ValueChanged<CardGroup> onAddCustom;
+  final void Function(CardGroup group, String label) onDeleteCustom;
   final Map<String, String> numericValues;
   final void Function(String key, String value) onNumericChanged;
+  final ValueChanged<bool> onExpansionChanged;
 
   @override
   Widget build(BuildContext context) {
@@ -324,6 +722,7 @@ class _CategoryPanel extends StatelessWidget {
         child: Theme(
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
+            onExpansionChanged: onExpansionChanged,
             title: Text(
               category.name,
               style: const TextStyle(
@@ -331,19 +730,33 @@ class _CategoryPanel extends StatelessWidget {
                 color: kCardTitleColor,
               ),
             ),
+            // 펼쳐졌을 때 헤더(흰색)와 구분되도록 내용 영역에 연한 배경색을
+            // 준다. ExpansionTile.backgroundColor는 헤더까지 같이 물들여서
+            // 대신 children을 감싸는 Container로 처리한다.
             children: <Widget>[
-              for (final CardGroup group in category.groups)
-                _GroupSection(
-                  group: group,
-                  scale: scale,
-                  items: sortedItemsOf(visibleItemsOf(group.items)),
-                  keyOf: (CardItem item) => keyOf(group, item),
-                  isSelected: isSelected,
-                  isHighlighted: isHighlighted,
-                  onToggle: onToggle,
-                  numericValues: numericValues,
-                  onNumericChanged: onNumericChanged,
+              Container(
+                color: kPanelBg,
+                child: Column(
+                  children: <Widget>[
+                    for (final CardGroup group in groups)
+                      _GroupSection(
+                        group: group,
+                        scale: scale,
+                        items: itemsOf(group),
+                        keyOf: (CardItem item) => keyOf(group, item),
+                        isSelected: isSelected,
+                        isCustom: (String label) => isCustom(group, label),
+                        showAddButton: allowsCustomAdd(group),
+                        onToggle: onToggle,
+                        onAddCustom: () => onAddCustom(group),
+                        onDeleteCustom: (String label) =>
+                            onDeleteCustom(group, label),
+                        numericValues: numericValues,
+                        onNumericChanged: onNumericChanged,
+                      ),
+                  ],
                 ),
+              ),
             ],
           ),
         ),
@@ -359,8 +772,11 @@ class _GroupSection extends StatelessWidget {
     required this.items,
     required this.keyOf,
     required this.isSelected,
-    required this.isHighlighted,
+    required this.isCustom,
+    required this.showAddButton,
     required this.onToggle,
+    required this.onAddCustom,
+    required this.onDeleteCustom,
     required this.numericValues,
     required this.onNumericChanged,
   });
@@ -370,14 +786,17 @@ class _GroupSection extends StatelessWidget {
   final List<CardItem> items;
   final String Function(CardItem item) keyOf;
   final bool Function(String key) isSelected;
-  final bool Function(CardItem item) isHighlighted;
+  final bool Function(String label) isCustom;
+  final bool showAddButton;
   final ValueChanged<String> onToggle;
+  final VoidCallback onAddCustom;
+  final ValueChanged<String> onDeleteCustom;
   final Map<String, String> numericValues;
   final void Function(String key, String value) onNumericChanged;
 
   @override
   Widget build(BuildContext context) {
-    if (items.isEmpty) return const SizedBox.shrink();
+    if (items.isEmpty && !showAddButton) return const SizedBox.shrink();
 
     return Padding(
       padding: EdgeInsets.fromLTRB(16, 0, 16, 14 * scale),
@@ -397,12 +816,13 @@ class _GroupSection extends StatelessWidget {
             runSpacing: 8 * scale,
             children: <Widget>[
               for (final CardItem item in items)
-                if (item.isNumberInput)
+                if (item.isInputField)
                   _NumberInputChip(
                     scale: scale,
                     label: item.label,
                     unit: item.unit ?? '',
-                    initialValue: numericValues[keyOf(item)] ?? '',
+                    value: numericValues[keyOf(item)] ?? '',
+                    isNumeric: item.isNumericInput,
                     onChanged: (String value) =>
                         onNumericChanged(keyOf(item), value),
                   )
@@ -410,10 +830,21 @@ class _GroupSection extends StatelessWidget {
                   _CardItemChip(
                     scale: scale,
                     label: item.label,
-                    highlighted: isHighlighted(item),
                     selected: isSelected(keyOf(item)),
+                    isCustom: isCustom(item.label),
                     onTap: () => onToggle(keyOf(item)),
+                    onDelete: isCustom(item.label)
+                        ? () => onDeleteCustom(item.label)
+                        : null,
                   ),
+              if (showAddButton)
+                ActionChip(
+                  avatar: const Icon(Icons.add, size: 18, color: kAccentPurple),
+                  label: const Text('버튼 추가'),
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: kCardBorder),
+                  onPressed: onAddCustom,
+                ),
             ],
           ),
         ],
@@ -422,34 +853,36 @@ class _GroupSection extends StatelessWidget {
   }
 }
 
-// 세 가지 상태(기본/등급강조/선택됨)를 서로 다른 시각 채널로 동시에 표현한다.
-// 배경색 = 등급 강조 여부, 테두리+체크 아이콘 = 선택 여부. 같은 채널(둘 다
-// 배경색)을 쓰면 등급강조+선택이 겹쳤을 때 구분이 안 되므로 절대 섞지 않는다.
+// 배경색 = 내가 추가한 카드 여부, 테두리+체크 아이콘 = 선택 여부. 서로 다른
+// 시각 채널이라 겹쳐도(배경+테두리) 항상 구분된다.
 class _CardItemChip extends StatelessWidget {
   const _CardItemChip({
     required this.scale,
     required this.label,
-    required this.highlighted,
     required this.selected,
+    required this.isCustom,
     required this.onTap,
+    this.onDelete,
   });
 
   final double scale;
   final String label;
-  final bool highlighted;
   final bool selected;
+  final bool isCustom;
   final VoidCallback onTap;
+  final VoidCallback? onDelete;
 
   @override
   Widget build(BuildContext context) {
-    final Color bg = highlighted ? _kHighlightBg : _kNeutralBg;
-    final Color textColor = highlighted ? _kHighlightText : _kNeutralText;
+    final Color bg = isCustom ? _kCustomBg : _kNeutralBg;
+    final Color textColor = isCustom ? _kCustomText : _kNeutralText;
 
     return Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
+        onLongPress: onDelete,
         child: Container(
           padding: EdgeInsets.symmetric(
             horizontal: 14 * scale,
@@ -474,6 +907,10 @@ class _CardItemChip extends StatelessWidget {
                 label,
                 style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
               ),
+              if (isCustom) ...<Widget>[
+                SizedBox(width: 4 * scale),
+                Icon(Icons.star, size: 12 * scale, color: textColor),
+              ],
             ],
           ),
         ),
@@ -482,26 +919,106 @@ class _CardItemChip extends StatelessWidget {
   }
 }
 
-class _NumberInputChip extends StatefulWidget {
+// [입력 카드] 탭하면 값이 바로 열리지 않고 다이얼로그가 떠서 그 안에서
+// 입력한다. 값이 있으면 카드 자체에도 값이 요약되어 보인다. 숫자(input:
+// "number")면 숫자 키패드, 그 외(input: "text", 예: 차량번호)는 일반
+// 텍스트 입력을 쓴다.
+class _NumberInputChip extends StatelessWidget {
   const _NumberInputChip({
     required this.scale,
     required this.label,
     required this.unit,
-    required this.initialValue,
+    required this.value,
+    required this.isNumeric,
     required this.onChanged,
   });
 
   final double scale;
   final String label;
   final String unit;
-  final String initialValue;
+  final String value;
+  final bool isNumeric;
   final ValueChanged<String> onChanged;
 
+  Future<void> _open(BuildContext context) async {
+    final String? result = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => _NumberInputDialog(
+        label: label,
+        unit: unit,
+        initialValue: value,
+        isNumeric: isNumeric,
+      ),
+    );
+    if (result != null) onChanged(result);
+  }
+
   @override
-  State<_NumberInputChip> createState() => _NumberInputChipState();
+  Widget build(BuildContext context) {
+    final bool hasValue = value.trim().isNotEmpty;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: () => _open(context),
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: 14 * scale,
+            vertical: 10 * scale,
+          ),
+          decoration: BoxDecoration(
+            color: hasValue ? _kNumberFilledBg : Colors.white,
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: hasValue ? kAccentPurple : kCardBorder,
+              width: hasValue ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Icon(
+                isNumeric ? Icons.numbers : Icons.edit,
+                size: 16,
+                color: kAccentPurple,
+              ),
+              SizedBox(width: 6 * scale),
+              Text(
+                hasValue ? '$label $value$unit' : label,
+                style: const TextStyle(
+                  color: kCardTitleColor,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
 }
 
-class _NumberInputChipState extends State<_NumberInputChip> {
+// [입력 카드] 다이얼로그. _AddCardDialog와 같은 이유로 컨트롤러를 자체
+// 소유/해제한다.
+class _NumberInputDialog extends StatefulWidget {
+  const _NumberInputDialog({
+    required this.label,
+    required this.unit,
+    required this.initialValue,
+    required this.isNumeric,
+  });
+
+  final String label;
+  final String unit;
+  final String initialValue;
+  final bool isNumeric;
+
+  @override
+  State<_NumberInputDialog> createState() => _NumberInputDialogState();
+}
+
+class _NumberInputDialogState extends State<_NumberInputDialog> {
   late final TextEditingController _controller = TextEditingController(
     text: widget.initialValue,
   );
@@ -514,44 +1031,344 @@ class _NumberInputChipState extends State<_NumberInputChip> {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.symmetric(
-        horizontal: 14 * widget.scale,
-        vertical: 8 * widget.scale,
+    return AlertDialog(
+      title: Text(widget.label),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: widget.isNumeric
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : TextInputType.text,
+        decoration: InputDecoration(suffixText: widget.unit),
       ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('확인'),
+        ),
+      ],
+    );
+  }
+}
+
+// "버튼 추가" 새 낱말카드 이름 입력 다이얼로그.
+class _AddCardDialog extends StatefulWidget {
+  const _AddCardDialog();
+
+  @override
+  State<_AddCardDialog> createState() => _AddCardDialogState();
+}
+
+class _AddCardDialogState extends State<_AddCardDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('버튼 추가'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        decoration: const InputDecoration(hintText: '카드에 표시할 문구'),
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('추가'),
+        ),
+      ],
+    );
+  }
+}
+
+// 화면 최상단에 이름 붙여 저장한 조합을 최근 저장순으로 가로 스크롤
+// 표시한다. 탭하면 상세 시트가 열린다.
+class _SavedCombinationsBar extends StatelessWidget {
+  const _SavedCombinationsBar({
+    required this.combinations,
+    required this.onTap,
+  });
+
+  final List<SavedCardCombination> combinations;
+  final ValueChanged<SavedCardCombination> onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return DecoratedBox(
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: kCardBorder),
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(
+          bottom: BorderSide(color: Theme.of(context).dividerColor),
+        ),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
+      child: SizedBox(
+        height: 52,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          itemCount: combinations.length,
+          separatorBuilder: (BuildContext context, int index) =>
+              const SizedBox(width: 8),
+          itemBuilder: (BuildContext context, int index) {
+            final SavedCardCombination combo = combinations[index];
+            return InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => onTap(combo),
+              child: Chip(
+                avatar: const Icon(Icons.star, size: 16, color: kAccentPurple),
+                label: Text(combo.name),
+                backgroundColor: kWordButtonBg,
+                labelStyle: const TextStyle(
+                  color: kWordButtonText,
+                  fontWeight: FontWeight.w600,
+                ),
+                side: BorderSide.none,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+// 문장생성 버튼 바로 위: 지금까지 클릭(선택)한 카드 목록. 하나씩 삭제하거나
+// 한 번에 전체 삭제할 수 있다.
+class _SelectedItemsBar extends StatelessWidget {
+  const _SelectedItemsBar({
+    required this.scale,
+    required this.labels,
+    required this.onRemove,
+    required this.onClearAll,
+  });
+
+  final double scale;
+  final List<String> labels;
+  final ValueChanged<String> onRemove;
+  final VoidCallback onClearAll;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.fromLTRB(
+        16 * scale,
+        10 * scale,
+        16 * scale,
+        4 * scale,
+      ),
+      decoration: const BoxDecoration(
+        color: kPanelBg,
+        border: Border(top: BorderSide(color: kCardBorder)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Text(
-            widget.label,
-            style: const TextStyle(
-              color: kCardTitleColor,
-              fontWeight: FontWeight.w600,
+          Row(
+            children: <Widget>[
+              Text(
+                '선택한 항목 (${labels.length}개)',
+                style: const TextStyle(
+                  fontWeight: FontWeight.w700,
+                  color: kCardTitleColor,
+                ),
+              ),
+              const Spacer(),
+              TextButton.icon(
+                onPressed: onClearAll,
+                icon: const Icon(Icons.delete_sweep, size: 18),
+                label: const Text('전체 삭제'),
+              ),
+            ],
+          ),
+          SizedBox(height: 4 * scale),
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: 96 * scale),
+            child: SingleChildScrollView(
+              child: Wrap(
+                spacing: 8 * scale,
+                runSpacing: 8 * scale,
+                children: <Widget>[
+                  for (final String label in labels)
+                    Chip(
+                      label: Text(label),
+                      deleteIcon: const Icon(Icons.close, size: 18),
+                      onDeleted: () => onRemove(label),
+                    ),
+                ],
+              ),
             ),
           ),
-          SizedBox(width: 8 * widget.scale),
+        ],
+      ),
+    );
+  }
+}
+
+// 저장된 조합 상세 시트: 선택했던 카드, 수치, 수급자의견, 저장된 결과
+// 문장을 보여준다. 단어 칩을 탭하면 시트가 닫히고 그 조합이 그대로
+// 불러와진다. 문장을 탭하면 복사되고, 이름을 길게 누르면 전체 삭제한다.
+class _SavedCombinationSheet extends StatelessWidget {
+  const _SavedCombinationSheet({
+    required this.combination,
+    required this.labelOf,
+    required this.onLoad,
+    required this.onDelete,
+  });
+
+  final SavedCardCombination combination;
+  final String Function(String key) labelOf;
+  final VoidCallback onLoad;
+  final Future<void> Function() onDelete;
+
+  Future<void> _confirmDelete(BuildContext context) async {
+    final bool confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            title: const Text('저장 삭제'),
+            content: Text('"${combination.name}"을(를) 삭제할까요?'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('삭제'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+    await onDelete();
+  }
+
+  Future<void> _copy(BuildContext context, String text) async {
+    await Clipboard.setData(ClipboardData(text: text));
+    if (!context.mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('복사되었습니다.')));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+        left: 20,
+        right: 20,
+        top: 4,
+        bottom: 20 + MediaQuery.of(context).viewInsets.bottom,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          GestureDetector(
+            onLongPress: () => _confirmDelete(context),
+            child: Text(
+              combination.name,
+              style: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w800,
+                color: kCardTitleColor,
+              ),
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            '이름을 길게 누르면 전체 삭제',
+            style: TextStyle(fontSize: 11, color: kSubHeaderColor),
+          ),
+          const SizedBox(height: 12),
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxHeight: MediaQuery.of(context).size.height * 0.6,
+            ),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: <Widget>[
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: <Widget>[
+                      for (final String key in combination.selectedKeys)
+                        Chip(label: Text(labelOf(key))),
+                    ],
+                  ),
+                  if (combination.opinion.isNotEmpty) ...<Widget>[
+                    const SizedBox(height: 10),
+                    Text(
+                      '수급자·보호자 의견: ${combination.opinion}',
+                      style: const TextStyle(color: kSubHeaderColor),
+                    ),
+                  ],
+                  const SizedBox(height: 16),
+                  for (final SavedResultEntry result in combination.results)
+                    if (result.text.trim().isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: InkWell(
+                          borderRadius: BorderRadius.circular(12),
+                          onTap: () => _copy(context, result.text),
+                          child: Container(
+                            width: double.infinity,
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: kPanelBg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: kCardBorder),
+                            ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: <Widget>[
+                                Text(
+                                  '[${result.label}] (탭해서 복사)',
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                    color: kSubHeaderColor,
+                                    fontSize: 12,
+                                  ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  result.text,
+                                  style: const TextStyle(
+                                    color: kCardTitleColor,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                      ),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
           SizedBox(
-            width: 64 * widget.scale,
-            child: TextField(
-              controller: _controller,
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              textAlign: TextAlign.center,
-              decoration: const InputDecoration(
-                isDense: true,
-                border: OutlineInputBorder(),
-              ),
-              onChanged: widget.onChanged,
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: onLoad,
+              child: const Text('이 조합 불러오기'),
             ),
           ),
-          SizedBox(width: 6 * widget.scale),
-          Text(widget.unit, style: const TextStyle(color: kSubHeaderColor)),
         ],
       ),
     );

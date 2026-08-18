@@ -30,6 +30,53 @@ const SYSTEM_PROMPT = `당신은 방문요양 상태변화기록지를 작성하
 
 출력은 완성된 기록 문장만 반환하고, 별도의 설명·인사말·목록 형식·따옴표는 포함하지 마세요.`;
 
+// [10] 조치 항목 없이 결과 확인을 누르면, 선택된 상태 키워드를 보고 적절한
+// 조치 2~3개를 추천해 팝업으로 보여준다. 랜덤이 아니라 상태와 실제로
+// 인과관계가 있는 조치만 추천하도록 규칙을 둔다.
+const ACTION_SUGGEST_SYSTEM_PROMPT = `당신은 노인장기요양 기록에서 관찰된 상태에 대해 적절한 조치를 추천하는 보조 도구입니다.
+요양보호사·사회복지사가 선택한 상태 관찰 항목을 보고, 그 상황에 실제로 필요한 조치를 2~3개 추천하세요.
+
+규칙:
+1. 입력된 상태 항목과 인과관계가 있는 현실적인 조치만 추천할 것. 막연하거나 상투적인 조치는 금지.
+2. 각 조치는 2~10자 내외의 짧은 버튼 문구로 작성할 것 (예: "보호자 알림", "경과 관찰", "체위변경 실시").
+3. 낙상·출혈·통증 급증·인지 급변 등 위중한 상태가 포함되면 "보호자 알림" 또는 "관리자 보고"류 조치를 반드시 하나 포함할 것.
+4. 서로 겹치지 않는 다양한 대응 조치를 추천할 것.
+5. 출력은 반드시 JSON 배열만 반환할 것. 다른 설명, 인사말, 마크다운, 코드블록은 절대 포함하지 말 것.
+
+출력 예시: ["보호자 알림", "경과 관찰", "체위변경 실시"]`;
+
+function buildActionSuggestUserMessage({ statusKeywords, facilityType, recordType }) {
+  return [
+    facilityType ? `시설유형: ${facilityType}` : null,
+    recordType ? `기록유형: ${recordType}` : null,
+    `선택된 상태 항목: ${statusKeywords.join(', ')}`,
+    '',
+    '위 상태에 적절한 조치 2~3개를 JSON 배열로만 추천하세요.',
+  ]
+    .filter((line) => line !== null)
+    .join('\n');
+}
+
+function parseSuggestionArray(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    const match = text.match(/\[[\s\S]*\]/);
+    if (!match) return [];
+    try {
+      parsed = JSON.parse(match[0]);
+    } catch {
+      return [];
+    }
+  }
+  if (!Array.isArray(parsed)) return [];
+  return parsed
+    .filter((item) => typeof item === 'string' && item.trim())
+    .map((item) => item.trim())
+    .slice(0, 3);
+}
+
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
 });
@@ -100,6 +147,48 @@ app.post('/generate', async (req, res) => {
   } catch (error) {
     console.error('Claude API 호출 실패:', error);
     res.status(502).json({ error: 'AI 기록 생성에 실패했습니다. 잠시 후 다시 시도해주세요.' });
+  }
+});
+
+app.post('/suggest-actions', async (req, res) => {
+  const { statusKeywords, facilityType, recordType } = req.body ?? {};
+
+  if (!Array.isArray(statusKeywords) || statusKeywords.length === 0) {
+    return res.status(400).json({ error: 'statusKeywords 필드가 필요합니다.' });
+  }
+
+  if (!process.env.ANTHROPIC_API_KEY) {
+    console.error('ANTHROPIC_API_KEY 환경변수가 설정되어 있지 않습니다.');
+    return res.status(500).json({ error: '서버 설정 오류입니다.' });
+  }
+
+  try {
+    const message = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 200,
+      system: ACTION_SUGGEST_SYSTEM_PROMPT,
+      messages: [
+        {
+          role: 'user',
+          content: buildActionSuggestUserMessage({
+            statusKeywords,
+            facilityType,
+            recordType,
+          }),
+        },
+      ],
+    });
+
+    const text = message.content
+      .filter((block) => block.type === 'text')
+      .map((block) => block.text)
+      .join('\n')
+      .trim();
+
+    res.json({ suggestions: parseSuggestionArray(text) });
+  } catch (error) {
+    console.error('조치 추천 실패:', error);
+    res.status(502).json({ error: '조치 추천에 실패했습니다. 잠시 후 다시 시도해주세요.' });
   }
 });
 
