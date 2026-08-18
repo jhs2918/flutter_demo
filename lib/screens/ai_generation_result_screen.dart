@@ -38,12 +38,17 @@ class AiGenerationResultScreen extends StatefulWidget {
   const AiGenerationResultScreen({
     super.key,
     required this.initialStatusText,
+    required this.initialActionText,
     required this.onRegenerate,
+    this.selectedLabels = const <String>[],
     this.onSave,
   });
 
   final String initialStatusText;
+  final String initialActionText;
   final Future<String> Function(String additionalRequest) onRegenerate;
+  // [12] 결과 위에 "어떤 단어를 선택했는지" 보여줄 카드 라벨 목록.
+  final List<String> selectedLabels;
   // 지정하면 "저장" 버튼이 나타난다. 이름과 지금까지의 결과 창 목록을 넘기면
   // 호출부(card_select_screen)가 현재 선택된 카드와 함께 저장한다.
   final Future<void> Function(String name, List<SavedResultEntry> results)?
@@ -58,7 +63,7 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
   final TextEditingController _refineController = TextEditingController();
   late final List<_ResultEntry> _entries = <_ResultEntry>[
     _ResultEntry(label: '상태', text: widget.initialStatusText),
-    _ResultEntry(label: '조치', text: ''),
+    _ResultEntry(label: '조치', text: widget.initialActionText),
   ];
   bool _isRegenerating = false;
 
@@ -154,6 +159,13 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
               padding: EdgeInsets.all(16 * scale),
               child: Column(
                 children: <Widget>[
+                  if (widget.selectedLabels.isNotEmpty) ...<Widget>[
+                    _SelectedWordsSummary(
+                      scale: scale,
+                      labels: widget.selectedLabels,
+                    ),
+                    SizedBox(height: 16 * scale),
+                  ],
                   for (final _ResultEntry entry in _entries) ...<Widget>[
                     _ResultBox(
                       scale: scale,
@@ -290,6 +302,54 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// [12] 결과 위에 "어떤 단어를 선택했는지" 보여주는 읽기 전용 요약. 선택
+// 화면의 칩과 달리 여기서는 삭제/토글이 필요 없어 단순 Chip으로만 나열한다.
+class _SelectedWordsSummary extends StatelessWidget {
+  const _SelectedWordsSummary({required this.scale, required this.labels});
+
+  final double scale;
+  final List<String> labels;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.all(16 * scale),
+      decoration: BoxDecoration(
+        color: kPanelBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kCardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            '선택한 항목 (${labels.length}개)',
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              color: kCardTitleColor,
+            ),
+          ),
+          SizedBox(height: 8 * scale),
+          Wrap(
+            spacing: 8 * scale,
+            runSpacing: 8 * scale,
+            children: <Widget>[
+              for (final String label in labels)
+                Chip(
+                  label: Text(label),
+                  backgroundColor: Colors.white,
+                  side: const BorderSide(color: kCardBorder),
+                  labelStyle: const TextStyle(color: kWordButtonText),
+                ),
+            ],
           ),
         ],
       ),

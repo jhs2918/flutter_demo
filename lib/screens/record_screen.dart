@@ -652,12 +652,18 @@ class _RecordScreenState extends State<RecordScreen> {
     // 미리 불러온 전면광고가 있으면 보여준다(광고를 보는 동안 백그라운드에서
     // 생성이 계속 진행된다). 광고가 없거나 로드/표시에 실패해도 생성 흐름은
     // 그대로 이어간다.
-    final Future<String> generateFuture = _aiRecordApi.generate(selections);
+    final Future<AiGeneratedRecord> generateFuture = _aiRecordApi.generate(
+      selections,
+    );
     await _interstitialAdService.showIfReady();
 
     String generatedText;
     try {
-      generatedText = await generateFuture;
+      final AiGeneratedRecord record = await generateFuture;
+      generatedText = <String>[
+        record.status,
+        record.action,
+      ].where((String s) => s.isNotEmpty).join(' ');
     } on AiRecordApiException catch (error) {
       if (!mounted) return;
       Navigator.of(context).pop(); // 로딩 다이얼로그 닫기

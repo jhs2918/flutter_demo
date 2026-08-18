@@ -399,6 +399,13 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     return _numericValues.values.any((String v) => v.trim().isNotEmpty);
   }
 
+  // [12] 결과 화면 위에 "어떤 단어를 선택했는지" 보여주기 위한 목록. 카드
+  // 선택 + (조치 미선택 팝업에서) 사용자가 고른 추천 조치까지 포함한다.
+  List<String> get _selectedWordLabels => <String>[
+    ..._selected.map(_labelForKey),
+    ..._recommendedActions,
+  ];
+
   // [10] 조치 항목 없이 결과 확인을 눌렀을 때, 선택된 상태 키워드로 조치를
   // 추천받아 팝업으로 보여준다. 조치를 이미 선택했거나 추천할 조치 그룹
   // 자체가 없는 기록유형이면 그냥 넘어간다.
@@ -445,6 +452,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     if (!mounted) return;
 
     final Map<String, List<String>> payload = _buildPayload();
+    final List<String> selectedLabels = _selectedWordLabels;
 
     showDialog<void>(
       context: context,
@@ -452,9 +460,9 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
       builder: (BuildContext context) => const AiGeneratingDialog(),
     );
 
-    String text;
+    AiGeneratedRecord record;
     try {
-      text = await _aiRecordApi.generate(payload);
+      record = await _aiRecordApi.generate(payload);
     } on AiRecordApiException catch (error) {
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -468,10 +476,17 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => AiGenerationResultScreen(
-          initialStatusText: text,
-          onRegenerate: (String additionalRequest) => _aiRecordApi.generate(
-            _buildPayload(additionalRequest: additionalRequest),
-          ),
+          initialStatusText: record.status,
+          initialActionText: record.action,
+          selectedLabels: selectedLabels,
+          onRegenerate: (String additionalRequest) => _aiRecordApi
+              .generate(_buildPayload(additionalRequest: additionalRequest))
+              .then(
+                (AiGeneratedRecord r) => <String>[
+                  r.status,
+                  r.action,
+                ].where((String s) => s.isNotEmpty).join(' '),
+              ),
           onSave: _saveCombination,
         ),
       ),
