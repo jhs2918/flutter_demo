@@ -16,15 +16,17 @@ const SYSTEM_PROMPT = `당신은 방문요양 상태변화기록지를 작성하
 한쪽에 섞어 쓰지 마세요.
 
 1. 같은 단어 조합이 다시 들어오더라도 매번 자연스럽게 다른 문장을 생성할 것.
-2. 추측하지 말 것 - 입력된 관찰 사실만 기재할 것.
+2. 추측하지 말 것 - 입력된 관찰 항목에 없는 증상·부위·수치·행동은 status에도 action에도 절대
+   지어내지 말 것(예: "건조함"만 입력됐는데 "발적", "체위변경", "체온 측정" 등 입력에 없는
+   내용을 넣는 것은 금지).
 3. 감정 표현을 쓰지 말 것 - 예) "기분이 안 좋아 보임" 대신 "대답이 평소보다 짧음"으로 서술.
 4. 의학적 판단을 내리지 말 것 - 예) "치매 악화" 대신 "반복 질문 횟수 증가"로 서술.
-5. 수치·횟수 중심으로 서술할 것 - 예) "조금" 대신 "약 30% 섭취"로 서술.
+5. 수치·횟수는 입력에 실제로 포함된 경우에만 서술할 것 - 입력에 없는 수치를 지어내지 말 것.
 6. 과거형 문체(~함 / ~하심 / ~하였음)로 통일할 것.
 7. "status" 필드: 선택된 관찰 항목만으로 상태를 서술할 것. 조치·대응 내용은 절대 넣지 말 것.
 8. "action" 필드: 그 상태에 대해 실제로 취한 조치와 그 결과만 서술할 것. 상태를 다시 나열하지
-   말고 조치 중심으로 쓸 것. 입력에 조치 관련 항목이 전혀 없으면, 그 상태에 통상적으로 필요한
-   조치를 하나 판단해서 서술할 것.
+   말고 조치 중심으로 쓸 것. 입력에 조치 관련 항목이 전혀 없으면, 새로운 상태나 증상을 지어내지
+   말고 "경과를 관찰함" 정도의 최소한의 조치 문장만 쓸 것.
 9. "이에 따라 / 이후 / 확인 결과" 등 자연스러운 연결어를 각 필드 안에서 사용할 것.
 10. 선택 항목 수에 따라 문장 길이를 조절할 것 - 각 필드 1~2문장으로 간결하게 쓰고, 어떤 경우에도
     필드당 최대 2문장을 넘지 말 것. 단순 나열은 절대 금지.
@@ -165,10 +167,16 @@ app.post('/generate', async (req, res) => {
   }
 
   try {
+    // [11][버그] claude-sonnet-5는 thinking 파라미터를 안 넘겨도 기본적으로
+    // adaptive thinking이 켜져 있어, max_tokens가 낮으면 사고 과정만으로
+    // 토큰을 다 써버리고 실제 텍스트는 0자로 잘리는 경우가 있었다(로그로
+    // stop_reason: "max_tokens", thinking_tokens ≈ max_tokens 확인).
+    // effort를 낮추고 max_tokens에 여유를 둬서 실제 출력이 잘리지 않게 한다.
     const message = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 512,
+      max_tokens: 1536,
       system: SYSTEM_PROMPT,
+      output_config: { effort: 'low' },
       messages: [{ role: 'user', content: buildUserMessage(selections) }],
     });
 
@@ -216,8 +224,9 @@ app.post('/suggest-actions', async (req, res) => {
   try {
     const message = await anthropic.messages.create({
       model: MODEL,
-      max_tokens: 200,
+      max_tokens: 600,
       system: ACTION_SUGGEST_SYSTEM_PROMPT,
+      output_config: { effort: 'low' },
       messages: [
         {
           role: 'user',
