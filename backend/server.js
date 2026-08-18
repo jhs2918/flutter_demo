@@ -185,7 +185,7 @@ app.post('/generate', async (req, res) => {
       model: MODEL,
       max_tokens: 1536,
       system: SYSTEM_PROMPT,
-      output_config: { effort: 'low' },
+      output_config: { effort: 'medium' },
       messages: [{ role: 'user', content: buildUserMessage(selections) }],
     });
 
