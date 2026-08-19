@@ -57,9 +57,6 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   CardCatalog? _catalog;
   final Set<String> _selected = <String>{};
   final Map<String, String> _numericValues = <String, String>{};
-  // [10] 조치 없이 결과 확인을 눌렀을 때 추천받아 사용자가 고른 조치.
-  // 재요청(onRegenerate) 시에도 같은 세션 동안은 계속 포함시킨다.
-  List<String> _recommendedActions = <String>[];
   // "categoryId::groupName" -> 사용자가 직접 추가한 라벨 목록.
   Map<String, List<String>> _customItems = <String, List<String>>{};
   // 이름 붙여 저장한 카드 선택 + AI 결과 목록. 최근 저장순으로 정렬해 둔다.
@@ -192,22 +189,6 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   // 부분도움/완전도움) 그룹은 다른 개념이라 제외한다("조치상황"은 "조치"로
   // 끝나지 않으므로 자연히 제외됨).
   bool _isActionGroupName(String name) => name.endsWith('조치');
-
-  bool get _hasActionGroupsAvailable => _visibleCategories.any(
-    (CardCategory c) => c.groups.any((CardGroup g) => _isActionGroupName(g.name)),
-  );
-
-  bool get _hasAnyActionSelected {
-    for (final CardCategory category in _visibleCategories) {
-      for (final CardGroup group in category.groups) {
-        if (!_isActionGroupName(group.name)) continue;
-        for (final CardItem item in _itemsWithCustom(category, group)) {
-          if (_selected.contains(_key(category, group, item))) return true;
-        }
-      }
-    }
-    return false;
-  }
 
   void _toggle(String key) {
     setState(() {
@@ -494,7 +475,6 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     final String opinion = _opinionController.text.trim();
     if (inputLines.isNotEmpty) payload['입력값'] = inputLines;
     if (opinion.isNotEmpty) payload['extra_note'] = opinion;
-    if (_recommendedActions.isNotEmpty) payload['추천조치'] = _recommendedActions;
     if (additionalRequest != null && additionalRequest.trim().isNotEmpty) {
       payload['추가요청'] = additionalRequest.trim();
     }
@@ -507,58 +487,11 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     return _numericValues.values.any((String v) => v.trim().isNotEmpty);
   }
 
-  // [12] 결과 화면 위에 "어떤 단어를 선택했는지" 보여주기 위한 목록. 카드
-  // 선택 + (조치 미선택 팝업에서) 사용자가 고른 추천 조치까지 포함한다.
-  List<String> get _selectedWordLabels => <String>[
-    ..._selected.map(_labelForKey),
-    ..._recommendedActions,
-  ];
-
-  // [10] 조치 항목 없이 결과 확인을 눌렀을 때, 선택된 상태 키워드로 조치를
-  // 추천받아 팝업으로 보여준다. 조치를 이미 선택했거나 추천할 조치 그룹
-  // 자체가 없는 기록유형이면 그냥 넘어간다.
-  Future<void> _maybeSuggestActions() async {
-    if (_hasAnyActionSelected || !_hasActionGroupsAvailable) return;
-    final List<String> statusKeywords = _selected.map(_labelForKey).toList();
-    if (statusKeywords.isEmpty) return;
-
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) =>
-          const AiGeneratingDialog(message: '상태에 맞는 조치를 분석하고 있어요...'),
-    );
-
-    List<String> suggestions;
-    try {
-      suggestions = await _aiRecordApi.suggestActions(
-        statusKeywords: statusKeywords,
-        facilityType: _facilityLabel,
-        recordType: widget.recordTypeLabel,
-      );
-    } on AiRecordApiException {
-      // 추천은 부가 기능이므로 실패해도 조용히 넘어가고 문장 생성은 계속한다.
-      suggestions = const <String>[];
-    }
-    if (!mounted) return;
-    Navigator.of(context).pop();
-    if (suggestions.isEmpty) return;
-
-    final List<String>? chosen = await showDialog<List<String>>(
-      context: context,
-      barrierDismissible: false,
-      builder: (BuildContext context) =>
-          _ActionSuggestionDialog(suggestions: suggestions),
-    );
-    if (!mounted || chosen == null) return;
-    setState(() => _recommendedActions = chosen);
-  }
+  // [12] 결과 화면 위에 "어떤 단어를 선택했는지" 보여주기 위한 목록.
+  List<String> get _selectedWordLabels =>
+      _selected.map(_labelForKey).toList();
 
   Future<void> _generate() async {
-    _recommendedActions = <String>[];
-    await _maybeSuggestActions();
-    if (!mounted) return;
-
     final Map<String, dynamic> payload = _buildPayload();
     final List<String> selectedLabels = _selectedWordLabels;
 
@@ -729,71 +662,6 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                 ),
               ],
             ),
-    );
-  }
-}
-
-// [10] 조치 없이 결과 확인을 눌렀을 때 뜨는 팝업. AI가 추천한 조치 2~3개를
-// 토글로 고를 수 있고, [선택 완료]는 고른 조치를, [조치 없이 계속]은 빈
-// 목록을 반환한다. 둘 중 하나를 눌러야만 닫힌다(뒤로가기로 닫히지 않음).
-class _ActionSuggestionDialog extends StatefulWidget {
-  const _ActionSuggestionDialog({required this.suggestions});
-
-  final List<String> suggestions;
-
-  @override
-  State<_ActionSuggestionDialog> createState() =>
-      _ActionSuggestionDialogState();
-}
-
-class _ActionSuggestionDialogState extends State<_ActionSuggestionDialog> {
-  final Set<String> _picked = <String>{};
-
-  @override
-  Widget build(BuildContext context) {
-    return PopScope(
-      canPop: false,
-      child: AlertDialog(
-        title: const Text('조치를 선택하지 않으셨어요'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: <Widget>[
-            const Text('선택하신 상태에 어울리는 조치를 추천해드려요.'),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: <Widget>[
-                for (final String suggestion in widget.suggestions)
-                  FilterChip(
-                    label: Text(suggestion),
-                    selected: _picked.contains(suggestion),
-                    onSelected: (bool selected) {
-                      setState(() {
-                        if (selected) {
-                          _picked.add(suggestion);
-                        } else {
-                          _picked.remove(suggestion);
-                        }
-                      });
-                    },
-                  ),
-              ],
-            ),
-          ],
-        ),
-        actions: <Widget>[
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(const <String>[]),
-            child: const Text('조치 없이 계속'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(_picked.toList()),
-            child: const Text('선택 완료'),
-          ),
-        ],
-      ),
     );
   }
 }
