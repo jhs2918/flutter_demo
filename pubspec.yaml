@@ -55,6 +55,20 @@ dev_dependencies:
   # rules and activating additional ones.
   flutter_lints: ^6.0.0
 
+  # [앱 아이콘] assets/icon/app_icon.png을 각 플랫폼 아이콘으로 생성해준다.
+  # `dart run flutter_launcher_icons`로 실행하며, 빌드 시 필요한 개발 도구라
+  # dependencies가 아닌 dev_dependencies에 둔다.
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: "assets/icon/app_icon.png"
+  windows:
+    generate: true
+  web:
+    generate: true
+
 # For information on the generic Dart part of this file, see the
 # following page: https://dart.dev/tools/pub/pubspec
 
@@ -66,9 +80,15 @@ flutter:
   # the material Icons class.
   uses-material-design: true
 
-  # [낱말카드 개편] cards.json을 앱에 번들해 런타임에 읽어 렌더링한다.
+  # [낱말카드 개편] 카드 데이터를 앱에 번들해 런타임에 읽어 렌더링한다.
+  # [버그 회피] 시설별로 파일을 나눈 이유: 방문요양+주간보호를 합친 파일
+  # 하나(약 54KB)로 두면 `flutter test`의 에셋 로딩(rootBundle.loadString)이
+  # 약 50KB 부근에서 응답 없이 멈추는 문제가 있었다(실제 앱 실행에는 영향
+  # 없음, flutter_test 하네스에서만 재현됨). 각 파일을 임계치 아래로 유지하기
+  # 위해 시설별로 나눠서 번들한다.
   assets:
-    - assets/data/cards.json
+    - assets/data/cards_visit.json
+    - assets/data/cards_day.json
 
   # An image asset can refer to one or more resolution-specific "variants", see
   # https://flutter.dev/to/resolution-aware-images

@@ -112,16 +112,6 @@ class CardRecordType {
   }
 }
 
-// 기록유형은 시설과 무관하게 항상 이 5종·이 순서로 존재한다(내용만 시설별로
-// 다르다). 선택 화면에서 이 상수를 그대로 사용한다.
-const List<(String id, String label)> kRecordTypeOrder = <(String, String)>[
-  ('benefit', '급여제공기록'),
-  ('status', '상태변화일지'),
-  ('worklog', '업무수행일지'),
-  ('case', '사례관리'),
-  ('counsel', '직원상담'),
-];
-
 /// cards.json 전체를 담는 최상위 카탈로그. 시설별로 기록유형 목록을 갖는다.
 class CardCatalog {
   const CardCatalog({required this.visit, required this.day});
@@ -139,16 +129,18 @@ class CardCatalog {
     return null;
   }
 
-  factory CardCatalog.fromJson(Map<String, dynamic> json) {
-    List<CardRecordType> parse(String key) {
-      final List<dynamic> raw = json[key] as List<dynamic>;
-      return raw
-          .map(
-            (dynamic rt) => CardRecordType.fromJson(rt as Map<String, dynamic>),
-          )
-          .toList();
-    }
+  // [버그 회피] 시설별로 파일이 나뉘어 있으므로(자세한 이유는 pubspec.yaml
+  // 주석 참고) 각 시설의 record type 배열을 따로 받는다.
+  factory CardCatalog.fromParts({
+    required List<dynamic> visitJson,
+    required List<dynamic> dayJson,
+  }) {
+    List<CardRecordType> parse(List<dynamic> raw) => raw
+        .map(
+          (dynamic rt) => CardRecordType.fromJson(rt as Map<String, dynamic>),
+        )
+        .toList();
 
-    return CardCatalog(visit: parse('visit'), day: parse('day'));
+    return CardCatalog(visit: parse(visitJson), day: parse(dayJson));
   }
 }
