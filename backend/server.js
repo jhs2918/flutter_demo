@@ -2,7 +2,7 @@ const express = require('express');
 const cors = require('cors');
 const Anthropic = require('@anthropic-ai/sdk');
 
-const MODEL = 'claude-sonnet-5';
+const MODEL = 'claude-haiku-4-5';
 const MAX_SELECTED_ITEMS = 10;
 
 // [06][11] 선택된 카테고리별 항목을 방문요양 상태변화기록 문장으로 바꾸는
@@ -229,18 +229,16 @@ app.post('/generate', async (req, res) => {
   }
 
   try {
-    // [11][버그] claude-sonnet-5는 thinking 파라미터를 안 넘겨도 기본적으로
-    // adaptive thinking이 켜져 있다. 이 때문에 (1) max_tokens가 낮으면 사고
-    // 과정만으로 토큰을 다 써버려 실제 텍스트가 0자로 잘리는 경우가 있었고
-    // (로그로 stop_reason: "max_tokens", thinking_tokens ≈ max_tokens 확인),
-    // (2) 입력에 없는 증상·조치를 지어내는 환각도 thinking이 켜져 있을 때
-    // 더 심하게 재현됐다. 짧고 사실 그대로만 옮겨 적으면 되는 작업이라
-    // thinking 자체를 끄고 max_tokens에 여유를 둔다.
+    // [15][모델 변경] claude-haiku-4-5로 전환. claude-sonnet-5는 thinking
+    // 파라미터를 안 넘겨도 기본적으로 adaptive thinking이 켜져 있어 짧은
+    // 답변에도 사고 토큰을 많이 써버리는 문제가 있었지만(그래서 thinking을
+    // 명시적으로 껐었다), Haiku 4.5 같은 구형 티어는 thinking이 기본 꺼짐
+    // 상태이고 `{type: "disabled"}` 형태 자체를 지원하지 않으므로 파라미터를
+    // 아예 넘기지 않는다.
     const message = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1536,
       system: SYSTEM_PROMPT,
-      thinking: { type: 'disabled' },
       messages: [{ role: 'user', content: buildUserMessage(payload) }],
     });
 
@@ -286,11 +284,13 @@ app.post('/suggest-actions', async (req, res) => {
   }
 
   try {
+    // [15][모델 변경] output_config.effort는 claude-haiku-4-5에서 지원하지
+    // 않아(400 오류) 뺐다 - Sonnet 5 전용이었던 튜닝값이라 모델을 바꾸며
+    // 함께 제거한다.
     const message = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 600,
       system: ACTION_SUGGEST_SYSTEM_PROMPT,
-      output_config: { effort: 'low' },
       messages: [
         {
           role: 'user',
