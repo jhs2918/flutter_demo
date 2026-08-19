@@ -67,6 +67,10 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   // 카테고리 펼침 시 그 위치로 스크롤하기 위한 카드별 키.
   final Map<String, GlobalKey> _categoryKeys = <String, GlobalKey>{};
   final ScrollController _scrollController = ScrollController();
+  // [13] 한 번에 하나의 카테고리만 펼쳐지도록(아코디언) 각 카테고리의
+  // 펼침 상태를 직접 제어하기 위한 컨트롤러.
+  final Map<String, ExpansibleController> _expansionControllers =
+      <String, ExpansibleController>{};
 
   @override
   void initState() {
@@ -111,6 +115,27 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
 
   GlobalKey _keyFor(String categoryId) =>
       _categoryKeys.putIfAbsent(categoryId, GlobalKey.new);
+
+  ExpansibleController _expansionControllerFor(String categoryId) =>
+      _expansionControllers.putIfAbsent(
+        categoryId,
+        ExpansibleController.new,
+      );
+
+  // [13] 카테고리 안에서 실제로 선택된 낱말(입력 필드 제외) 개수. 헤더 옆
+  // 배지에 쓴다.
+  int _selectedCountFor(CardCategory category) {
+    int count = 0;
+    for (final CardGroup group in _groupsFor(category)) {
+      for (final CardItem item in _itemsWithCustom(category, group)) {
+        if (!item.isInputField &&
+            _selected.contains(_key(category, group, item))) {
+          count++;
+        }
+      }
+    }
+    return count;
+  }
 
   String get _facilityLabel =>
       widget.service == CardService.visit ? '방문요양' : '주간보호';
@@ -275,9 +300,32 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     );
   }
 
-  // 카테고리가 펼쳐지면 다음 프레임에 그 카드 위치로 부드럽게 스크롤한다.
-  void _handleExpansion(String categoryId, bool expanded) {
+  // [13] 카테고리가 펼쳐지면 - 아코디언처럼 다른 카테고리는 전부 닫고
+  // (한 번에 하나만 펼쳐짐) - 그 카드 위치로 부드럽게 스크롤한다. 다른
+  // 카테고리를 접는 애니메이션(기본 200ms)과 스크롤 대상 계산이 동시에
+  // 돌면 접히는 중간 크기를 기준으로 스크롤 위치를 계산해버려 엉뚱한
+  // 곳으로 스크롤된다 - 접는 애니메이션이 끝날 시간을 먼저 기다린다.
+  Future<void> _handleExpansion(String categoryId, bool expanded) async {
+    final bool collapsingOthers = expanded &&
+        _expansionControllers.entries.any(
+          (MapEntry<String, ExpansibleController> entry) =>
+              entry.key != categoryId && entry.value.isExpanded,
+        );
+    if (expanded) {
+      for (final MapEntry<String, ExpansibleController> entry
+          in _expansionControllers.entries) {
+        if (entry.key != categoryId && entry.value.isExpanded) {
+          entry.value.collapse();
+        }
+      }
+    }
     if (!expanded) return;
+    if (collapsingOthers) {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+    } else {
+      await Future<void>.delayed(Duration.zero);
+    }
+    if (!mounted) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       final BuildContext? cardContext =
@@ -356,15 +404,31 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     await _customRepository.save(_customItems);
   }
 
-  Map<String, List<String>> _buildPayload({String? additionalRequest}) {
-    final Map<String, List<String>> payload = <String, List<String>>{
-      '시설유형': <String>[_facilityLabel],
-      '기록유형': <String>[widget.recordTypeLabel],
-    };
+  // [14] 방문요양어플지침.txt가 요구하는 facility_type/record_type/
+  // care_level/body_part 필드를 실제로 채워 보낸다. 이전에는 카테고리 안의
+  // 상태·조치·조치상황·방향·부위·증상 항목이 전부 한 리스트로 뭉쳐져
+  // 카테고리명 하나로만 보내졌다(예: "피부상태": ["건조함", "보습제 도포"]) -
+  // AI가 어떤 단어가 관찰된 상태이고 어떤 게 취한 조치인지 라벨만 보고
+  // 추측해야 했던 게 환각(입력에 없는 내용을 지어내는 문제)의 원인 중
+  // 하나로 보인다. 이제 카테고리별로 역할을 나눠서 명시적으로 보낸다.
+  //
+  // 원 지침은 카테고리 하나·body_part 하나만 고르는 단일 선택 흐름을
+  // 전제로 한 스키마이지만, 지금 앱은 여러 카테고리를 한꺼번에 채워서
+  // 제출하므로 care_level/body_part를 카테고리별로 중첩시켜 보낸다(지침의
+  // 필드명은 그대로 유지).
+  Map<String, dynamic> _buildPayload({String? additionalRequest}) {
+    final Map<String, dynamic> selections = <String, dynamic>{};
     final List<String> inputLines = <String>[];
 
     for (final CardCategory category in _visibleCategories) {
-      final List<String> picked = <String>[];
+      final List<String> statusItems = <String>[];
+      final List<String> actionItems = <String>[];
+      final List<String> careLevelItems = <String>[];
+      final List<String> directionItems = <String>[];
+      final List<String> partItems = <String>[];
+      final List<String> symptomItems = <String>[];
+      final List<String> genericItems = <String>[];
+
       for (final CardGroup group in _groupsFor(category)) {
         for (final CardItem item in _itemsWithCustom(category, group)) {
           final String key = _key(category, group, item);
@@ -375,20 +439,64 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                 '${category.name}·${item.label} ${value.trim()}${item.unit ?? ''}',
               );
             }
-          } else if (_selected.contains(key)) {
-            picked.add(item.label);
+            continue;
+          }
+          if (!_selected.contains(key)) continue;
+
+          switch (group.name) {
+            case _kCareLevelGroupName:
+              careLevelItems.add(item.label);
+            case '방향':
+              directionItems.add(item.label);
+            case '부위':
+              partItems.add(item.label);
+            case '증상':
+              symptomItems.add(item.label);
+            default:
+              if (_isActionGroupName(group.name)) {
+                actionItems.add(item.label);
+              } else if (group.name.endsWith('상태')) {
+                statusItems.add(item.label);
+              } else {
+                genericItems.add(item.label);
+              }
           }
         }
       }
-      if (picked.isNotEmpty) payload[category.name] = picked;
+
+      final Map<String, dynamic> categoryPayload = <String, dynamic>{
+        if (statusItems.isNotEmpty) 'status': statusItems,
+        if (actionItems.isNotEmpty) 'action': actionItems,
+        if (careLevelItems.isNotEmpty) 'care_level': careLevelItems,
+        if (directionItems.isNotEmpty ||
+            partItems.isNotEmpty ||
+            symptomItems.isNotEmpty)
+          'body_part': <String, dynamic>{
+            if (directionItems.isNotEmpty) 'direction': directionItems,
+            if (partItems.isNotEmpty) 'part': partItems,
+            if (symptomItems.isNotEmpty) 'symptom': symptomItems,
+          },
+        if (genericItems.isNotEmpty) 'items': genericItems,
+      };
+      if (categoryPayload.isNotEmpty) {
+        selections[category.name] = categoryPayload;
+      }
     }
+
+    final Map<String, dynamic> payload = <String, dynamic>{
+      'facility_type': widget.service == CardService.visit
+          ? 'home_care'
+          : 'day_care',
+      'record_type': widget.recordTypeLabel,
+      if (selections.isNotEmpty) 'selections': selections,
+    };
 
     final String opinion = _opinionController.text.trim();
     if (inputLines.isNotEmpty) payload['입력값'] = inputLines;
-    if (opinion.isNotEmpty) payload['수급자의견'] = <String>[opinion];
-    if (_recommendedActions.isNotEmpty) payload['조치'] = _recommendedActions;
+    if (opinion.isNotEmpty) payload['extra_note'] = opinion;
+    if (_recommendedActions.isNotEmpty) payload['추천조치'] = _recommendedActions;
     if (additionalRequest != null && additionalRequest.trim().isNotEmpty) {
-      payload['추가요청'] = <String>[additionalRequest.trim()];
+      payload['추가요청'] = additionalRequest.trim();
     }
     return payload;
   }
@@ -451,7 +559,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     await _maybeSuggestActions();
     if (!mounted) return;
 
-    final Map<String, List<String>> payload = _buildPayload();
+    final Map<String, dynamic> payload = _buildPayload();
     final List<String> selectedLabels = _selectedWordLabels;
 
     showDialog<void>(
@@ -558,6 +666,10 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                             child: _CategoryPanel(
                               category: category,
                               scale: scale,
+                              selectedCount: _selectedCountFor(category),
+                              controller: _expansionControllerFor(
+                                category.id,
+                              ),
                               groups: _groupsFor(category),
                               itemsOf: (CardGroup group) =>
                                   _itemsWithCustom(category, group),
@@ -690,6 +802,8 @@ class _CategoryPanel extends StatelessWidget {
   const _CategoryPanel({
     required this.category,
     required this.scale,
+    required this.selectedCount,
+    required this.controller,
     required this.groups,
     required this.itemsOf,
     required this.keyOf,
@@ -706,6 +820,10 @@ class _CategoryPanel extends StatelessWidget {
 
   final CardCategory category;
   final double scale;
+  // [13] 이 카테고리 안에서 선택된 낱말 개수. 0이면 배지를 숨긴다.
+  final int selectedCount;
+  // [13] 아코디언(한 번에 하나만 펼침) 동작을 위한 외부 제어 컨트롤러.
+  final ExpansibleController controller;
   final List<CardGroup> groups;
   final List<CardItem> Function(CardGroup group) itemsOf;
   final String Function(CardGroup group, CardItem item) keyOf;
@@ -737,13 +855,24 @@ class _CategoryPanel extends StatelessWidget {
         child: Theme(
           data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
           child: ExpansionTile(
+            controller: controller,
             onExpansionChanged: onExpansionChanged,
-            title: Text(
-              category.name,
-              style: const TextStyle(
-                fontWeight: FontWeight.w800,
-                color: kCardTitleColor,
-              ),
+            title: Row(
+              children: <Widget>[
+                Flexible(
+                  child: Text(
+                    category.name,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w800,
+                      color: kCardTitleColor,
+                    ),
+                  ),
+                ),
+                if (selectedCount > 0) ...<Widget>[
+                  SizedBox(width: 8 * scale),
+                  _SelectedCountBadge(count: selectedCount, scale: scale),
+                ],
+              ],
             ),
             // 펼쳐졌을 때 헤더(흰색)와 구분되도록 내용 영역에 연한 배경색을
             // 준다. ExpansionTile.backgroundColor는 헤더까지 같이 물들여서
@@ -774,6 +903,33 @@ class _CategoryPanel extends StatelessWidget {
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+}
+
+// [13] 카테고리 헤더 옆에 붙는 "이 안에서 N개 선택함" 배지.
+class _SelectedCountBadge extends StatelessWidget {
+  const _SelectedCountBadge({required this.count, required this.scale});
+
+  final int count;
+  final double scale;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.symmetric(horizontal: 8 * scale, vertical: 2 * scale),
+      decoration: BoxDecoration(
+        color: kAccentPurple,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$count',
+        style: const TextStyle(
+          color: Colors.white,
+          fontWeight: FontWeight.w800,
+          fontSize: 12,
         ),
       ),
     );
@@ -889,8 +1045,17 @@ class _CardItemChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final Color bg = isCustom ? _kCustomBg : _kNeutralBg;
-    final Color textColor = isCustom ? _kCustomText : _kNeutralText;
+    // [13] 선택 여부가 배경색으로도 드러나야 한다는 요청 - 선택되면 테두리·
+    // 체크 아이콘뿐 아니라 배경도 진한 보라로 바뀐다(기존 미사용 상태였던
+    // kWordButtonSelectedBg/kWordButtonSelectedText를 재사용). 커스텀 카드
+    // 표시(연두 배경)는 선택되지 않았을 때만 보이고, 선택되면 별 아이콘으로만
+    // 구분한다 - 두 배경색이 동시에 경쟁하면 오히려 선택 여부가 덜 도드라진다.
+    final Color bg = selected
+        ? kWordButtonSelectedBg
+        : (isCustom ? _kCustomBg : _kNeutralBg);
+    final Color textColor = selected
+        ? kWordButtonSelectedText
+        : (isCustom ? _kCustomText : _kNeutralText);
 
     return Material(
       color: Colors.transparent,
@@ -907,7 +1072,7 @@ class _CardItemChip extends StatelessWidget {
             color: bg,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: selected ? kAccentPurple : Colors.transparent,
+              color: selected ? kCardSelectedBorder : Colors.transparent,
               width: 2,
             ),
           ),
@@ -915,7 +1080,7 @@ class _CardItemChip extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               if (selected) ...<Widget>[
-                const Icon(Icons.check_circle, size: 16, color: kAccentPurple),
+                Icon(Icons.check_circle, size: 16, color: textColor),
                 SizedBox(width: 6 * scale),
               ],
               Text(

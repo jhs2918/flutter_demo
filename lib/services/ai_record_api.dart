@@ -37,9 +37,10 @@ class AiRecordApi {
 
   final String baseUrl;
 
-  Future<AiGeneratedRecord> generate(
-    Map<String, List<String>> selections,
-  ) async {
+  // [14] payload는 카드선택화면._buildPayload()가 만든 facility_type/
+  // record_type/selections/... 형태를 그대로 최상위로 보낸다(추가 래핑
+  // 없음) - 백엔드가 req.body를 바로 그 형태로 읽는다.
+  Future<AiGeneratedRecord> generate(Map<String, dynamic> payload) async {
     final http.Response response;
     try {
       response = await http
@@ -48,7 +49,7 @@ class AiRecordApi {
             headers: const <String, String>{
               'Content-Type': 'application/json',
             },
-            body: jsonEncode(<String, Object>{'selections': selections}),
+            body: jsonEncode(payload),
           )
           .timeout(const Duration(seconds: 30));
     } on Object {

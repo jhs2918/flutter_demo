@@ -131,30 +131,83 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '1mb' }));
 
-// 선택된 카테고리별 항목을 Claude에게 전달할 사용자 메시지로 변환한다.
-function buildUserMessage(selections) {
-  const lines = Object.entries(selections)
-    .filter(([, items]) => Array.isArray(items) && items.length > 0)
-    .map(([category, items]) => `- ${category}: ${items.join(', ')}`);
+// [14] 카테고리별 항목이 status/action/care_level/body_part/items로 이미
+// 나뉘어 들어온다(앱 쪽 card_select_screen._buildPayload 참고) - 역할을
+// 라벨로 명시해서 Claude에게 전달한다. 예전에는 한 카테고리의 모든 선택
+// 항목이 구분 없이 한 줄로 뭉쳐서 넘어가 AI가 어떤 게 상태고 어떤 게
+// 조치인지 라벨 의미만으로 추측해야 했다 - 그게 환각(입력에 없는 내용을
+// 지어내는 문제)의 원인 중 하나였다.
+function buildUserMessage(payload) {
+  const lines = [];
+  if (payload.facility_type) {
+    lines.push(`시설유형(facility_type): ${payload.facility_type}`);
+  }
+  if (payload.record_type) {
+    lines.push(`기록유형(record_type): ${payload.record_type}`);
+  }
 
-  return [
-    '다음은 이번 방문에서 선택된 카테고리별 관찰 항목입니다.',
-    '',
-    lines.join('\n'),
-    '',
-    '위 항목을 반영하여 규칙에 맞는 방문요양 상태변화기록 문장을 작성하세요.',
-  ].join('\n');
+  const selections = payload.selections || {};
+  lines.push('', '선택된 카테고리별 관찰 항목:');
+  for (const [category, data] of Object.entries(selections)) {
+    if (!data || typeof data !== 'object') continue;
+    lines.push(`- ${category}:`);
+    if (Array.isArray(data.status) && data.status.length) {
+      lines.push(`  상태(status): ${data.status.join(', ')}`);
+    }
+    if (Array.isArray(data.action) && data.action.length) {
+      lines.push(`  조치(action): ${data.action.join(', ')}`);
+    }
+    if (Array.isArray(data.care_level) && data.care_level.length) {
+      lines.push(`  조치상황(care_level): ${data.care_level.join(', ')}`);
+    }
+    if (data.body_part && typeof data.body_part === 'object') {
+      const bp = data.body_part;
+      const parts = [];
+      if (bp.direction?.length) parts.push(`방향 ${bp.direction.join('/')}`);
+      if (bp.part?.length) parts.push(`부위 ${bp.part.join('/')}`);
+      if (bp.symptom?.length) parts.push(`증상 ${bp.symptom.join('/')}`);
+      if (parts.length) lines.push(`  신체부위(body_part): ${parts.join(', ')}`);
+    }
+    if (Array.isArray(data.items) && data.items.length) {
+      lines.push(`  항목: ${data.items.join(', ')}`);
+    }
+  }
+
+  if (Array.isArray(payload['입력값']) && payload['입력값'].length) {
+    lines.push('', `입력값: ${payload['입력값'].join(', ')}`);
+  }
+  if (payload.extra_note) {
+    lines.push('', `수급자·보호자 의견(extra_note): ${payload.extra_note}`);
+  }
+  if (Array.isArray(payload['추천조치']) && payload['추천조치'].length) {
+    lines.push('', `AI 추천 후 사용자가 선택한 조치: ${payload['추천조치'].join(', ')}`);
+  }
+  if (payload['추가요청']) {
+    lines.push('', `추가 요청: ${payload['추가요청']}`);
+  }
+
+  lines.push('', '위 항목을 반영하여 규칙에 맞는 방문요양 상태변화기록 문장을 작성하세요.');
+  return lines.join('\n');
 }
 
 function countSelectedItems(selections) {
-  return Object.values(selections).reduce(
-    (total, items) => total + (Array.isArray(items) ? items.length : 0),
-    0,
-  );
+  let total = 0;
+  for (const data of Object.values(selections)) {
+    if (!data || typeof data !== 'object') continue;
+    total += (data.status?.length || 0) + (data.action?.length || 0) +
+      (data.care_level?.length || 0) + (data.items?.length || 0);
+    if (data.body_part && typeof data.body_part === 'object') {
+      const bp = data.body_part;
+      total += (bp.direction?.length || 0) + (bp.part?.length || 0) +
+        (bp.symptom?.length || 0);
+    }
+  }
+  return total;
 }
 
 app.post('/generate', async (req, res) => {
-  const { selections } = req.body ?? {};
+  const payload = req.body ?? {};
+  const { selections } = payload;
 
   if (!selections || typeof selections !== 'object' || Array.isArray(selections)) {
     return res.status(400).json({ error: 'selections 필드가 필요합니다.' });
@@ -177,16 +230,18 @@ app.post('/generate', async (req, res) => {
 
   try {
     // [11][버그] claude-sonnet-5는 thinking 파라미터를 안 넘겨도 기본적으로
-    // adaptive thinking이 켜져 있어, max_tokens가 낮으면 사고 과정만으로
-    // 토큰을 다 써버리고 실제 텍스트는 0자로 잘리는 경우가 있었다(로그로
-    // stop_reason: "max_tokens", thinking_tokens ≈ max_tokens 확인).
-    // effort를 낮추고 max_tokens에 여유를 둬서 실제 출력이 잘리지 않게 한다.
+    // adaptive thinking이 켜져 있다. 이 때문에 (1) max_tokens가 낮으면 사고
+    // 과정만으로 토큰을 다 써버려 실제 텍스트가 0자로 잘리는 경우가 있었고
+    // (로그로 stop_reason: "max_tokens", thinking_tokens ≈ max_tokens 확인),
+    // (2) 입력에 없는 증상·조치를 지어내는 환각도 thinking이 켜져 있을 때
+    // 더 심하게 재현됐다. 짧고 사실 그대로만 옮겨 적으면 되는 작업이라
+    // thinking 자체를 끄고 max_tokens에 여유를 둔다.
     const message = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1536,
       system: SYSTEM_PROMPT,
       thinking: { type: 'disabled' },
-      messages: [{ role: 'user', content: buildUserMessage(selections) }],
+      messages: [{ role: 'user', content: buildUserMessage(payload) }],
     });
 
     const text = message.content
