@@ -6,22 +6,24 @@ import '../state/font_scale_controller.dart';
 import '../theme/pastel_palette.dart';
 import '../widgets/font_scale_bar.dart';
 
-/// [17] 저장된 카드 조합 + AI 결과 목록 화면. 각 항목은 그때 선택했던 단어
-/// 조합을 헤더로 보여준다. 헤더를 처음 탭하면 펼쳐져서 저장된 결과 문장이
-/// (복사 버튼과 함께) 보이고, 펼쳐진 상태에서 헤더를 한 번 더 탭하면 그
-/// 조합을 반환하며 화면이 닫힌다 - 호출부(카드 선택 화면)가 그 값을 받아
-/// 현재 선택 상태에 그대로 반영한다.
+/// [18] 저장된 이름 목록 화면. 저장은 이름을 지정해서 하며, 같은 이름으로
+/// 여러 번 저장하면 그 이름 아래에 리스트로 쌓인다. 여기서는 이름과 그
+/// 이름 아래 저장된 개수만 보여주고, 이름을 탭하면 [SavedNameEntriesScreen]
+/// 으로 이동해 그 이름 안의 저장 항목들을 본다. 이름 자체도 통째로 삭제할
+/// 수 있다.
 class SavedCombinationsScreen extends StatefulWidget {
   const SavedCombinationsScreen({
     super.key,
     required this.combinations,
     required this.labelOf,
-    required this.onDelete,
+    required this.onDeleteEntry,
+    required this.onDeleteName,
   });
 
   final List<SavedCardCombination> combinations;
   final String Function(String key) labelOf;
-  final Future<void> Function(DateTime savedAt) onDelete;
+  final Future<void> Function(DateTime savedAt) onDeleteEntry;
+  final Future<void> Function(String name) onDeleteName;
 
   @override
   State<SavedCombinationsScreen> createState() =>
@@ -30,6 +32,217 @@ class SavedCombinationsScreen extends StatefulWidget {
 
 class _SavedCombinationsScreenState extends State<SavedCombinationsScreen> {
   late List<SavedCardCombination> _combinations = widget.combinations;
+
+  // 이름별로 묶되, 이름 그룹의 순서는 그 안에서 가장 최근 저장 시각 기준.
+  List<MapEntry<String, List<SavedCardCombination>>> get _grouped {
+    final Map<String, List<SavedCardCombination>> byName =
+        <String, List<SavedCardCombination>>{};
+    for (final SavedCardCombination combo in _combinations) {
+      byName.putIfAbsent(combo.name, () => <SavedCardCombination>[]).add(combo);
+    }
+    final List<MapEntry<String, List<SavedCardCombination>>> entries = byName
+        .entries
+        .toList();
+    entries.sort((
+      MapEntry<String, List<SavedCardCombination>> a,
+      MapEntry<String, List<SavedCardCombination>> b,
+    ) {
+      final DateTime aLatest = a.value.first.savedAt;
+      final DateTime bLatest = b.value.first.savedAt;
+      return bLatest.compareTo(aLatest);
+    });
+    return entries;
+  }
+
+  Future<void> _deleteName(String name) async {
+    final bool confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            title: const Text('이름 삭제'),
+            content: Text('"$name" 이름 아래 저장된 항목을 모두 삭제할까요?'),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('삭제'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed) return;
+
+    await widget.onDeleteName(name);
+    if (!mounted) return;
+    setState(() {
+      _combinations = _combinations
+          .where((SavedCardCombination c) => c.name != name)
+          .toList();
+    });
+  }
+
+  Future<void> _openNameEntries(
+    String name,
+    List<SavedCardCombination> entries,
+  ) async {
+    final SavedCardCombination? chosen = await Navigator.of(context)
+        .push<SavedCardCombination>(
+          MaterialPageRoute<SavedCardCombination>(
+            builder: (BuildContext context) => SavedNameEntriesScreen(
+              name: name,
+              entries: entries,
+              labelOf: widget.labelOf,
+              onDeleteEntry: (DateTime savedAt) async {
+                await widget.onDeleteEntry(savedAt);
+                setState(() {
+                  _combinations = _combinations
+                      .where((SavedCardCombination c) => c.savedAt != savedAt)
+                      .toList();
+                });
+              },
+            ),
+          ),
+        );
+    if (chosen != null && mounted) Navigator.of(context).pop(chosen);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final double scale = FontScaleScope.of(context).scale;
+    final List<MapEntry<String, List<SavedCardCombination>>> grouped =
+        _grouped;
+
+    return Scaffold(
+      backgroundColor: kAppBackground,
+      appBar: AppBar(
+        title: const Text('저장된 기록'),
+        backgroundColor: kSectionHeaderBg,
+        foregroundColor: Colors.white,
+      ),
+      body: Column(
+        children: <Widget>[
+          const FontScaleBar(),
+          Expanded(
+            child: grouped.isEmpty
+                ? const Center(child: Text('저장된 기록이 없습니다.'))
+                : ListView.separated(
+                    padding: EdgeInsets.all(16 * scale),
+                    itemCount: grouped.length,
+                    separatorBuilder: (BuildContext context, int index) =>
+                        SizedBox(height: 12 * scale),
+                    itemBuilder: (BuildContext context, int index) {
+                      final String name = grouped[index].key;
+                      final List<SavedCardCombination> entries =
+                          grouped[index].value;
+                      return _NameGroupTile(
+                        scale: scale,
+                        name: name,
+                        entries: entries,
+                        onTap: () => _openNameEntries(name, entries),
+                        onDelete: () => _deleteName(name),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NameGroupTile extends StatelessWidget {
+  const _NameGroupTile({
+    required this.scale,
+    required this.name,
+    required this.entries,
+    required this.onTap,
+    required this.onDelete,
+  });
+
+  final double scale;
+  final String name;
+  final List<SavedCardCombination> entries;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: kCardBorder),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: EdgeInsets.all(14 * scale),
+          child: Row(
+            children: <Widget>[
+              const Icon(Icons.folder, color: kAccentPurple),
+              SizedBox(width: 10 * scale),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: <Widget>[
+                    Text(
+                      name,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.w800,
+                        color: kCardTitleColor,
+                        fontSize: 16,
+                      ),
+                    ),
+                    SizedBox(height: 4 * scale),
+                    Text(
+                      '저장 ${entries.length}건',
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: kSubHeaderColor,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              TextButton(onPressed: onDelete, child: const Text('삭제')),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// [18] 이름 하나 아래 쌓인 저장 항목 목록 화면. 항목(단어조합) 헤더를
+/// 처음 탭하면 펼쳐져서 저장된 결과 문장이 (복사 버튼과 함께) 보이고,
+/// 펼쳐진 상태에서 헤더를 한 번 더 탭하면 그 조합을 반환하며 화면이
+/// (이 화면과 이름 목록 화면 모두) 닫힌다.
+class SavedNameEntriesScreen extends StatefulWidget {
+  const SavedNameEntriesScreen({
+    super.key,
+    required this.name,
+    required this.entries,
+    required this.labelOf,
+    required this.onDeleteEntry,
+  });
+
+  final String name;
+  final List<SavedCardCombination> entries;
+  final String Function(String key) labelOf;
+  final Future<void> Function(DateTime savedAt) onDeleteEntry;
+
+  @override
+  State<SavedNameEntriesScreen> createState() =>
+      _SavedNameEntriesScreenState();
+}
+
+class _SavedNameEntriesScreenState extends State<SavedNameEntriesScreen> {
+  late List<SavedCardCombination> _entries = widget.entries;
 
   Future<void> _delete(SavedCardCombination combo) async {
     final bool confirmed =
@@ -53,13 +266,14 @@ class _SavedCombinationsScreenState extends State<SavedCombinationsScreen> {
         false;
     if (!confirmed) return;
 
-    await widget.onDelete(combo.savedAt);
+    await widget.onDeleteEntry(combo.savedAt);
     if (!mounted) return;
     setState(() {
-      _combinations = _combinations
+      _entries = _entries
           .where((SavedCardCombination c) => c.savedAt != combo.savedAt)
           .toList();
     });
+    if (_entries.isEmpty) Navigator.of(context).pop();
   }
 
   @override
@@ -69,7 +283,7 @@ class _SavedCombinationsScreenState extends State<SavedCombinationsScreen> {
     return Scaffold(
       backgroundColor: kAppBackground,
       appBar: AppBar(
-        title: const Text('저장된 기록'),
+        title: Text(widget.name),
         backgroundColor: kSectionHeaderBg,
         foregroundColor: Colors.white,
       ),
@@ -77,15 +291,15 @@ class _SavedCombinationsScreenState extends State<SavedCombinationsScreen> {
         children: <Widget>[
           const FontScaleBar(),
           Expanded(
-            child: _combinations.isEmpty
+            child: _entries.isEmpty
                 ? const Center(child: Text('저장된 기록이 없습니다.'))
                 : ListView.separated(
                     padding: EdgeInsets.all(16 * scale),
-                    itemCount: _combinations.length,
+                    itemCount: _entries.length,
                     separatorBuilder: (BuildContext context, int index) =>
                         SizedBox(height: 12 * scale),
                     itemBuilder: (BuildContext context, int index) {
-                      final SavedCardCombination combo = _combinations[index];
+                      final SavedCardCombination combo = _entries[index];
                       return _SavedCombinationTile(
                         scale: scale,
                         combination: combo,
@@ -215,17 +429,9 @@ class _SavedCombinationTileState extends State<_SavedCombinationTile> {
                       ],
                     ),
                   ),
-                  InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: widget.onDelete,
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
-                      child: Icon(
-                        Icons.delete_outline,
-                        size: 20,
-                        color: kSubHeaderColor,
-                      ),
-                    ),
+                  TextButton(
+                    onPressed: widget.onDelete,
+                    child: const Text('삭제'),
                   ),
                 ],
               ),
@@ -279,17 +485,20 @@ class _SavedCombinationTileState extends State<_SavedCombinationTile> {
                                       ),
                                     ),
                                   ),
-                                  InkWell(
-                                    borderRadius: BorderRadius.circular(12),
-                                    onTap: () => _copy(context, result.text),
-                                    child: const Padding(
-                                      padding: EdgeInsets.all(2),
-                                      child: Icon(
-                                        Icons.copy,
-                                        size: 16,
-                                        color: kAccentPurple,
+                                  // [18] 아이콘이 아닌 글자 버튼("복사").
+                                  TextButton(
+                                    onPressed: () =>
+                                        _copy(context, result.text),
+                                    style: TextButton.styleFrom(
+                                      minimumSize: Size.zero,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 10,
+                                        vertical: 4,
                                       ),
+                                      tapTargetSize:
+                                          MaterialTapTargetSize.shrinkWrap,
                                     ),
+                                    child: const Text('복사'),
                                   ),
                                 ],
                               ),

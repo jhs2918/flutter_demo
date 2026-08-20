@@ -222,9 +222,14 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     });
   }
 
-  // [17] 저장을 누를 때마다 겹쳐쓰지 않고 목록 맨 앞에 새 항목으로 쌓는다.
-  Future<void> _saveCombination(List<SavedResultEntry> results) async {
+  // [18] 저장을 누를 때마다 겹쳐쓰지 않고, 지정한 이름 아래 목록 맨 앞에
+  // 새 항목으로 쌓는다(같은 이름으로 여러 번 저장 가능).
+  Future<void> _saveCombination(
+    String name,
+    List<SavedResultEntry> results,
+  ) async {
     final SavedCardCombination combo = SavedCardCombination(
+      name: name,
       savedAt: DateTime.now(),
       selectedKeys: _selected.toList(),
       numericValues: <String, String>{
@@ -243,7 +248,8 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     await _savedRepository.save(updated);
   }
 
-  // savedAt(밀리초 단위)이 곧 각 저장 항목의 고유 식별자다.
+  // savedAt(밀리초 단위)이 곧 같은 이름 안에서 각 저장 항목의 고유
+  // 식별자다.
   Future<void> _deleteCombination(DateTime savedAt) async {
     final List<SavedCardCombination> updated = _savedCombinations
         .where((SavedCardCombination c) => c.savedAt != savedAt)
@@ -252,9 +258,18 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     await _savedRepository.save(updated);
   }
 
-  // [17] 저장 리스트 화면으로 이동한다. 화면에서 어떤 조합의 단어 헤더를
-  // 두 번째로 탭하면 그 조합을 반환하며 화면이 닫히고, 여기서 현재 선택
-  // 상태에 그대로 반영한다.
+  // [18] 이름 자체(그 아래 쌓인 저장 항목 전부)를 삭제한다.
+  Future<void> _deleteNameGroup(String name) async {
+    final List<SavedCardCombination> updated = _savedCombinations
+        .where((SavedCardCombination c) => c.name != name)
+        .toList();
+    setState(() => _savedCombinations = updated);
+    await _savedRepository.save(updated);
+  }
+
+  // [17][18] 저장 리스트 화면(이름별로 묶임)으로 이동한다. 이름 안의 어떤
+  // 조합의 단어 헤더를 두 번째로 탭하면 그 조합을 반환하며 화면이 모두
+  // 닫히고, 여기서 현재 선택 상태에 그대로 반영한다.
   Future<void> _openSavedCombinationsScreen() async {
     final SavedCardCombination? chosen = await Navigator.of(context)
         .push<SavedCardCombination>(
@@ -262,7 +277,8 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
             builder: (BuildContext context) => SavedCombinationsScreen(
               combinations: _savedCombinations,
               labelOf: _labelForKey,
-              onDelete: _deleteCombination,
+              onDeleteEntry: _deleteCombination,
+              onDeleteName: _deleteNameGroup,
             ),
           ),
         );
@@ -517,6 +533,10 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                 ].where((String s) => s.isNotEmpty).join(' '),
               ),
           onSave: _saveCombination,
+          existingNames: _savedCombinations
+              .map((SavedCardCombination c) => c.name)
+              .toSet()
+              .toList(),
         ),
       ),
     );

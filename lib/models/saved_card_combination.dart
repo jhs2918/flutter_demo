@@ -20,12 +20,14 @@ class SavedResultEntry {
       );
 }
 
-// [17] 저장 구조 개편: 더 이상 사용자가 이름을 붙이지 않는다. 저장을 누를
-// 때마다 겹쳐쓰지 않고 목록에 새로 쌓이며, 목록에는 그때 선택했던 단어
-// 조합(selectedKeys) 자체를 보여준다. savedAt(밀리초 단위 타임스탬프)이
-// 곧 고유 식별자 역할을 한다 - 같은 밀리초에 두 번 저장될 일은 사실상 없다.
+// [18] 저장 구조 개편: 저장할 때 이름(예: 수급자 이름·별칭)을 지정하고,
+// 같은 이름으로 여러 번 저장하면 겹쳐쓰지 않고 그 이름 아래에 리스트로
+// 쌓인다. savedAt(밀리초 단위 타임스탬프)은 같은 이름 안에서 각 저장
+// 항목을 구분하는 고유 식별자 역할을 한다 - 같은 밀리초에 두 번 저장될
+// 일은 사실상 없다.
 class SavedCardCombination {
   const SavedCardCombination({
+    required this.name,
     required this.savedAt,
     required this.selectedKeys,
     required this.numericValues,
@@ -33,6 +35,7 @@ class SavedCardCombination {
     required this.results,
   });
 
+  final String name;
   final DateTime savedAt;
   final List<String> selectedKeys;
   final Map<String, String> numericValues;
@@ -40,6 +43,7 @@ class SavedCardCombination {
   final List<SavedResultEntry> results;
 
   Map<String, dynamic> toJson() => <String, dynamic>{
+    'name': name,
     'savedAt': savedAt.toIso8601String(),
     'selectedKeys': selectedKeys,
     'numericValues': numericValues,
@@ -52,6 +56,7 @@ class SavedCardCombination {
         json['numericValues'] as Map<String, dynamic>;
     final List<dynamic> rawResults = json['results'] as List<dynamic>;
     return SavedCardCombination(
+      name: json['name'] as String? ?? '이름 없음',
       savedAt: DateTime.parse(json['savedAt'] as String),
       selectedKeys: (json['selectedKeys'] as List<dynamic>).cast<String>(),
       numericValues: rawNumeric.map(

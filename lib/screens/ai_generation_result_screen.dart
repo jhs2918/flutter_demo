@@ -44,6 +44,7 @@ class AiGenerationResultScreen extends StatefulWidget {
     required this.onRegenerate,
     this.selectedLabels = const <String>[],
     this.onSave,
+    this.existingNames = const <String>[],
   });
 
   final String initialStatusText;
@@ -51,9 +52,13 @@ class AiGenerationResultScreen extends StatefulWidget {
   final Future<String> Function(String additionalRequest) onRegenerate;
   // [12] 결과 위에 "어떤 단어를 선택했는지" 보여줄 카드 라벨 목록.
   final List<String> selectedLabels;
-  // 지정하면 "저장" 버튼이 나타난다. 지금까지의 결과 창 목록을 넘기면
-  // 호출부(card_select_screen)가 현재 선택된 카드와 함께 저장한다.
-  final Future<void> Function(List<SavedResultEntry> results)? onSave;
+  // 지정하면 "저장" 버튼이 나타난다. 이름과 지금까지의 결과 창 목록을
+  // 넘기면 호출부(card_select_screen)가 현재 선택된 카드와 함께, 그 이름
+  // 아래 리스트로 저장한다(겹쳐쓰지 않음).
+  final Future<void> Function(String name, List<SavedResultEntry> results)?
+  onSave;
+  // [18] 저장 이름 입력 시 빠르게 고를 수 있게 보여줄 기존 이름 목록.
+  final List<String> existingNames;
 
   @override
   State<AiGenerationResultScreen> createState() =>
@@ -119,9 +124,16 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
   }
 
   Future<void> _save() async {
-    final Future<void> Function(List<SavedResultEntry> results)? onSave =
-        widget.onSave;
+    final Future<void> Function(String name, List<SavedResultEntry> results)?
+    onSave = widget.onSave;
     if (onSave == null) return;
+
+    final String? name = await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) =>
+          _SaveNameDialog(existingNames: widget.existingNames),
+    );
+    if (name == null || name.trim().isEmpty) return;
 
     final List<SavedResultEntry> results = _entries
         .map(
@@ -129,7 +141,7 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
               SavedResultEntry(label: e.label, text: e.controller.text),
         )
         .toList();
-    await onSave(results);
+    await onSave(name.trim(), results);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('저장되었습니다.')));
@@ -312,6 +324,85 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
   }
 }
 
+// [18] 저장 이름을 입력받는 다이얼로그. 기존에 저장된 이름이 있으면 칩으로
+// 보여줘서 탭 한 번으로 같은 이름을 다시 고를 수 있게 한다(그 이름 아래
+// 리스트에 새 항목이 쌓임).
+class _SaveNameDialog extends StatefulWidget {
+  const _SaveNameDialog({required this.existingNames});
+
+  final List<String> existingNames;
+
+  @override
+  State<_SaveNameDialog> createState() => _SaveNameDialogState();
+}
+
+class _SaveNameDialogState extends State<_SaveNameDialog> {
+  final TextEditingController _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final String name = _controller.text.trim();
+    if (name.isEmpty) return;
+    Navigator.of(context).pop(name);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('저장할 이름'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          const Text('예) 김할머니 - 같은 이름으로 저장하면 그 이름 아래 목록에 쌓입니다.'),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _submit(),
+            decoration: const InputDecoration(
+              hintText: '이름 입력',
+              border: OutlineInputBorder(),
+            ),
+          ),
+          if (widget.existingNames.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            const Text(
+              '기존 이름에서 선택',
+              style: TextStyle(fontSize: 12, color: kSubHeaderColor),
+            ),
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: <Widget>[
+                for (final String name in widget.existingNames)
+                  ActionChip(
+                    label: Text(name),
+                    onPressed: () => _controller.text = name,
+                  ),
+              ],
+            ),
+          ],
+        ],
+      ),
+      actions: <Widget>[
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('취소'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('저장')),
+      ],
+    );
+  }
+}
+
 // [12] 결과 위에 "어떤 단어를 선택했는지" 보여주는 읽기 전용 요약. 선택
 // 화면의 칩과 달리 여기서는 삭제/토글이 필요 없어 단순 Chip으로만 나열한다.
 class _SelectedWordsSummary extends StatelessWidget {
@@ -396,14 +487,18 @@ class _ResultBox extends StatelessWidget {
                   ),
                 ),
               ),
-              // [17] 결과창마다 개별 복사 버튼.
-              InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: onCopy,
-                child: const Padding(
-                  padding: EdgeInsets.all(4),
-                  child: Icon(Icons.copy, size: 18, color: kSubHeaderColor),
+              // [17][18] 결과창마다 개별 복사 버튼(아이콘이 아닌 글자 버튼).
+              TextButton(
+                onPressed: onCopy,
+                style: TextButton.styleFrom(
+                  minimumSize: Size.zero,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 10,
+                    vertical: 4,
+                  ),
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
+                child: const Text('복사'),
               ),
               if (onDelete != null) ...<Widget>[
                 SizedBox(width: 4 * scale),
