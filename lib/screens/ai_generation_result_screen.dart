@@ -13,6 +13,7 @@ const List<String> _kQuickRequests = <String>[
   '더 자세히 써줘',
   '보호자 연락 내용도 넣어줘',
   '좀 더 부드러운 표현으로',
+  '다른 조치로 다시 써줘',
 ];
 
 class _ResultEntry {
@@ -27,13 +28,14 @@ class _ResultEntry {
   final bool deletable;
 }
 
-/// [낱말카드 개편][7~8단계] AI가 생성한 문장을 보여주고, 직접 수정하거나
+/// [낱말카드 개편][7~8단계][17] AI가 생성한 문장을 보여주고, 직접 수정하거나
 /// 추가 요청을 적어 다시 생성할 수 있는 화면. 재요청해도 기존에 만들어진
 /// 결과는 그대로 두고, 그 아래에 새 결과 창을 하나 더 만들어 쌓아 보여준다
 /// (계속 요청하면 계속 아래로 쌓인다). 재요청은 원래 선택했던 카드·수치·
 /// 수급자의견은 그대로 유지된 채 추가 요청 문구만 얹어 다시 보낸다(재요청
-/// 로직은 [onRegenerate] 콜백이 담당). [onSave]를 지정하면 지금까지의 모든
-/// 결과 창 내용을 선택했던 카드와 함께 이름 붙여 저장할 수 있다.
+/// 로직은 [onRegenerate] 콜백이 담당). [onSave]를 지정하면 "저장" 버튼이
+/// 나타나고, 누르면 이름을 묻지 않고 바로 저장 목록에 새 항목으로 쌓인다
+/// (겹쳐쓰지 않음).
 class AiGenerationResultScreen extends StatefulWidget {
   const AiGenerationResultScreen({
     super.key,
@@ -49,10 +51,9 @@ class AiGenerationResultScreen extends StatefulWidget {
   final Future<String> Function(String additionalRequest) onRegenerate;
   // [12] 결과 위에 "어떤 단어를 선택했는지" 보여줄 카드 라벨 목록.
   final List<String> selectedLabels;
-  // 지정하면 "저장" 버튼이 나타난다. 이름과 지금까지의 결과 창 목록을 넘기면
+  // 지정하면 "저장" 버튼이 나타난다. 지금까지의 결과 창 목록을 넘기면
   // 호출부(card_select_screen)가 현재 선택된 카드와 함께 저장한다.
-  final Future<void> Function(String name, List<SavedResultEntry> results)?
-  onSave;
+  final Future<void> Function(List<SavedResultEntry> results)? onSave;
 
   @override
   State<AiGenerationResultScreen> createState() =>
@@ -118,15 +119,9 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
   }
 
   Future<void> _save() async {
-    final Future<void> Function(String name, List<SavedResultEntry> results)?
-    onSave = widget.onSave;
+    final Future<void> Function(List<SavedResultEntry> results)? onSave =
+        widget.onSave;
     if (onSave == null) return;
-
-    final String? name = await showDialog<String>(
-      context: context,
-      builder: (BuildContext context) => const _SaveNameDialog(),
-    );
-    if (name == null || name.trim().isEmpty) return;
 
     final List<SavedResultEntry> results = _entries
         .map(
@@ -134,10 +129,17 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
               SavedResultEntry(label: e.label, text: e.controller.text),
         )
         .toList();
-    await onSave(name.trim(), results);
+    await onSave(results);
     if (!mounted) return;
     ScaffoldMessenger.of(context)
         .showSnackBar(const SnackBar(content: Text('저장되었습니다.')));
+  }
+
+  Future<void> _copyEntry(_ResultEntry entry) async {
+    await Clipboard.setData(ClipboardData(text: entry.controller.text));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(const SnackBar(content: Text('복사되었습니다.')));
   }
 
   @override
@@ -170,6 +172,7 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
                     _ResultBox(
                       scale: scale,
                       entry: entry,
+                      onCopy: () => _copyEntry(entry),
                       onDelete: entry.deletable
                           ? () => _deleteEntry(entry)
                           : null,
@@ -361,11 +364,13 @@ class _ResultBox extends StatelessWidget {
   const _ResultBox({
     required this.scale,
     required this.entry,
+    required this.onCopy,
     required this.onDelete,
   });
 
   final double scale;
   final _ResultEntry entry;
+  final VoidCallback onCopy;
   final VoidCallback? onDelete;
 
   @override
@@ -391,7 +396,17 @@ class _ResultBox extends StatelessWidget {
                   ),
                 ),
               ),
-              if (onDelete != null)
+              // [17] 결과창마다 개별 복사 버튼.
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: onCopy,
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(Icons.copy, size: 18, color: kSubHeaderColor),
+                ),
+              ),
+              if (onDelete != null) ...<Widget>[
+                SizedBox(width: 4 * scale),
                 InkWell(
                   borderRadius: BorderRadius.circular(12),
                   onTap: onDelete,
@@ -400,6 +415,7 @@ class _ResultBox extends StatelessWidget {
                     child: Icon(Icons.close, size: 18, color: kSubHeaderColor),
                   ),
                 ),
+              ],
             ],
           ),
           SizedBox(height: 10 * scale),
@@ -417,46 +433,6 @@ class _ResultBox extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-// 저장 이름 입력 다이얼로그.
-class _SaveNameDialog extends StatefulWidget {
-  const _SaveNameDialog();
-
-  @override
-  State<_SaveNameDialog> createState() => _SaveNameDialogState();
-}
-
-class _SaveNameDialogState extends State<_SaveNameDialog> {
-  final TextEditingController _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('저장'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        decoration: const InputDecoration(hintText: '저장할 이름 (예: 김할머니)'),
-      ),
-      actions: <Widget>[
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('취소'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-          child: const Text('확인'),
-        ),
-      ],
     );
   }
 }
