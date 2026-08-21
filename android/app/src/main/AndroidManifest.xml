@@ -2,7 +2,7 @@
     <!-- [07] 백엔드 /generate 호출을 위해 필요. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="방문요양 기록도우미"
+        android:label="케어노트"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

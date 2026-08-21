@@ -41,7 +41,7 @@ class _CareRecorderAppState extends State<CareRecorderApp> {
     return FontScaleScope(
       controller: _fontScaleController,
       child: MaterialApp(
-        title: '방문요양·주간보호 급여제공기록',
+        title: '케어노트',
         // 날짜 선택기 등 머티리얼 위젯을 한국어로 표시하기 위한 델리게이트.
         localizationsDelegates: const <LocalizationsDelegate<Object>>[
           GlobalMaterialLocalizations.delegate,
