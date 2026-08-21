@@ -28,7 +28,7 @@ class ServiceSelectScreen extends StatelessWidget {
     return Scaffold(
       backgroundColor: kAppBackground,
       appBar: AppBar(
-        title: const Text('요양기록 작성'),
+        title: const Text('상태변화일지'),
         backgroundColor: kSectionHeaderBg,
         foregroundColor: Colors.white,
       ),
