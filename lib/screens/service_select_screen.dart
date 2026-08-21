@@ -3,18 +3,22 @@ import 'package:flutter/material.dart';
 import '../models/card_catalog.dart';
 import '../theme/pastel_palette.dart';
 import '../widgets/font_scale_bar.dart';
-import 'record_type_select_screen.dart';
+import 'card_select_screen.dart';
 
-/// [낱말카드 개편 v2][1단계] 방문요양/주간보호 서비스 종류를 고른다. 등급
-/// 선택 단계는 없고, 바로 기록유형 선택 화면으로 넘어간다.
+/// [상태변화일지 전용판] 방문요양/주간보호 서비스 종류를 고른다. 기록유형은
+/// 상태변화일지 하나뿐이라 별도 선택 화면 없이 바로 카드 선택 화면으로
+/// 넘어간다.
 class ServiceSelectScreen extends StatelessWidget {
   const ServiceSelectScreen({super.key});
 
   void _select(BuildContext context, CardService service) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) =>
-            RecordTypeSelectScreen(service: service),
+        builder: (BuildContext context) => CardSelectScreen(
+          service: service,
+          recordTypeId: 'status',
+          recordTypeLabel: '상태변화일지',
+        ),
       ),
     );
   }
