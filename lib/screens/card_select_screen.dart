@@ -190,6 +190,28 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   // 끝나지 않으므로 자연히 제외됨).
   bool _isActionGroupName(String name) => name.endsWith('조치');
 
+  // [20] 문장 길이 경고에 쓸 "상태(관찰) 쪽" 선택 개수. 조치·조치상황·방향·
+  // 부위처럼 문장 본문이 아니라 수식어 역할인 그룹은 빼고 센다 - AI가 실제로
+  // 문장 길이를 늘리는 건 이쪽(상태·증상·인지상태 소분류 등) 선택 개수라서다.
+  int get _observationSelectedCount {
+    int count = 0;
+    for (final CardCategory category in _visibleCategories) {
+      for (final CardGroup group in _groupsFor(category)) {
+        if (group.name == _kCareLevelGroupName ||
+            group.name == '방향' ||
+            group.name == '부위' ||
+            _isActionGroupName(group.name)) {
+          continue;
+        }
+        for (final CardItem item in _itemsWithCustom(category, group)) {
+          if (item.isInputField) continue;
+          if (_selected.contains(_key(category, group, item))) count++;
+        }
+      }
+    }
+    return count;
+  }
+
   void _toggle(String key) {
     setState(() {
       if (_selected.contains(key)) {
@@ -474,6 +496,9 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
           : 'day_care',
       'record_type': widget.recordTypeLabel,
       if (selections.isNotEmpty) 'selections': selections,
+      // [20] 백엔드가 문장 길이 제한(기본 50자, 상태 3개 이상이면 75자)을
+      // 판단할 때 쓴다 - 화면의 경고 배너와 같은 기준으로 센 값.
+      'observation_item_count': _observationSelectedCount,
     };
 
     final String opinion = _opinionController.text.trim();
@@ -592,6 +617,45 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                     ],
                   ),
                 ),
+                // [20] 상태(관찰) 쪽 선택이 3개 이상이면 AI 문장이 다소
+                // 길어질 수 있다는 걸 미리 알려준다(생성 버튼을 누르기 전에
+                // 선택을 조정할 수 있도록).
+                if (_observationSelectedCount >= 3)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                    child: Container(
+                      width: double.infinity,
+                      padding: EdgeInsets.symmetric(
+                        horizontal: 12 * scale,
+                        vertical: 8 * scale,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Colors.orange.shade50,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: Colors.orange.shade200),
+                      ),
+                      child: Row(
+                        children: <Widget>[
+                          Icon(
+                            Icons.info_outline,
+                            size: 16 * scale,
+                            color: Colors.orange.shade800,
+                          ),
+                          SizedBox(width: 6 * scale),
+                          Expanded(
+                            child: Text(
+                              '선택한 상태 항목이 많아 문장이 다소 길어질 수 있어요',
+                              style: TextStyle(
+                                color: Colors.orange.shade800,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12 * scale,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                 // [버그 회피] ListView(children:)도 내부적으로 Sliver를 쓰기
                 // 때문에 뷰포트 근처 항목만 지연 생성된다. 카테고리가 많은
                 // 기록유형(간호 및 처치 등)을 대비해 전부 즉시 빌드하는

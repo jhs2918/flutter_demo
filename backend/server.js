@@ -24,8 +24,10 @@ const COMMON_GUIDELINE = `당신은 방문요양 상태변화기록지를 작성
    작성할 것. 상태와 조치 사이는 "~하여" 또는 "~되어"로 연결할 것.
 2. 문장은 1~2문장으로 간결하게 작성할 것 - 어떤 경우에도 2문장을 넘지 말 것. 단순 나열은
    절대 금지이며, 선택 항목을 하나의 상황으로 통합하여 서술할 것(단, 항목이 1개뿐이면
-   통합할 것도 없으니 그 항목만 그대로 서술할 것). 전체 문장은 대략 60~80자 내외로 짧게
-   쓸 것 - 불필요한 수식어·상투적인 연결구를 넣어 늘리지 말고 핵심 정보만 남길 것.
+   통합할 것도 없으니 그 항목만 그대로 서술할 것). 전체 문장 길이는 기본적으로 50자
+   내외로 짧게 쓰되, 사용자 메시지의 "문장 길이 제한" 안내(상태 관련 선택 항목이 3개
+   이상이면 최대 75자까지 허용)를 그대로 따를 것 - 불필요한 수식어·상투적인 연결구를
+   넣어 늘리지 말고 핵심 정보만 남길 것.
 3. 상태를 서술할 때 쓴 단어·구절을 반응 문장에서 그대로 반복하지 말 것 - 예) "발에 걸리는
    모습이 관찰되어 ... 발에 걸리는 현상이 줄어든 모습이 관찰됨"(X, 같은 표현 반복) 대신
    "발에 걸리는 모습이 관찰되어 ... 이후 호전됨"(O, 짧게 지칭). 반응은 "다소 호전됨"/
@@ -211,6 +213,16 @@ function buildUserMessage(payload) {
     lines.push('', `추가 요청: ${payload['추가요청']}`);
   }
 
+  const observationCount = typeof payload.observation_item_count === 'number'
+    ? payload.observation_item_count
+    : countObservationItems(selections);
+  const maxChars = observationCount >= 3 ? 75 : 50;
+  lines.push(
+    '',
+    `문장 길이 제한: 상태(관찰) 관련 선택 항목이 ${observationCount}개이므로 이번 문장은 ` +
+      `최대 ${maxChars}자까지 작성하세요.`,
+  );
+
   lines.push('', '위 항목을 반영하여 규칙에 맞는 방문요양 상태변화기록 문장을 작성하세요.');
   return lines.join('\n');
 }
@@ -225,6 +237,22 @@ function countSelectedItems(selections) {
       const bp = data.body_part;
       total += (bp.direction?.length || 0) + (bp.part?.length || 0) +
         (bp.symptom?.length || 0);
+    }
+  }
+  return total;
+}
+
+// [20] 조치(action)·조치상황(care_level)·방향/부위(수식어)를 뺀, 문장의
+// "상태(관찰)" 쪽 분량을 좌우하는 선택 개수. 앱의 문장 길이 경고 배너와
+// 같은 기준이다 - 값을 안 보내는 호출(구버전 클라이언트, 직접 테스트 등)도
+// 대비해 selections에서 다시 계산하는 걸 기본으로 쓴다.
+function countObservationItems(selections) {
+  let total = 0;
+  for (const data of Object.values(selections)) {
+    if (!data || typeof data !== 'object') continue;
+    total += (data.status?.length || 0) + (data.items?.length || 0);
+    if (data.body_part && typeof data.body_part === 'object') {
+      total += data.body_part.symptom?.length || 0;
     }
   }
   return total;
