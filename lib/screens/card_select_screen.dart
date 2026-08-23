@@ -719,7 +719,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                               style: TextStyle(
                                 color: Colors.orange.shade800,
                                 fontWeight: FontWeight.w600,
-                                fontSize: 12 * scale,
+                                fontSize: 14 * scale,
                               ),
                             ),
                           ),
@@ -750,7 +750,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                           child: Text(
                             '상태만 선택해도 AI가 맞춤 조치와 조치상황을 자동으로 작성합니다',
                             style: TextStyle(
-                              fontSize: 13.5,
+                              fontSize: 14,
                               color: Colors.blue[800],
                             ),
                           ),
@@ -1399,7 +1399,7 @@ class _OpinionSection extends StatelessWidget {
           SizedBox(height: 6 * scale),
           const Text(
             '어르신이나 보호자가 직접 하신 말씀을 적어주세요',
-            style: TextStyle(color: kSubHeaderColor, fontSize: 12),
+            style: TextStyle(color: kSubHeaderColor, fontSize: 14),
           ),
         ],
       ),

@@ -220,7 +220,7 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
                           '기존 결과는 그대로 남고, 아래에 새 결과가 추가됩니다',
                           style: TextStyle(
                             color: kSubHeaderColor,
-                            fontSize: 12,
+                            fontSize: 14,
                           ),
                         ),
                         SizedBox(height: 8 * scale),
@@ -382,7 +382,7 @@ class _SaveNameDialogState extends State<_SaveNameDialog> {
             const SizedBox(height: 12),
             const Text(
               '기존 이름에서 선택',
-              style: TextStyle(fontSize: 12, color: kSubHeaderColor),
+              style: TextStyle(fontSize: 14, color: kSubHeaderColor),
             ),
             const SizedBox(height: 6),
             Wrap(

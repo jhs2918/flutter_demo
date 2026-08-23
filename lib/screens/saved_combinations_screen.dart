@@ -202,7 +202,7 @@ class _NameGroupTile extends StatelessWidget {
                     Text(
                       '저장 ${entries.length}건',
                       style: const TextStyle(
-                        fontSize: 12,
+                        fontSize: 14,
                         color: kSubHeaderColor,
                       ),
                     ),
@@ -395,7 +395,7 @@ class _SavedCombinationTileState extends State<_SavedCombinationTile> {
                         Text(
                           _formatSavedAt(combo.savedAt),
                           style: const TextStyle(
-                            fontSize: 11,
+                            fontSize: 14,
                             color: kSubHeaderColor,
                           ),
                         ),
@@ -421,7 +421,7 @@ class _SavedCombinationTileState extends State<_SavedCombinationTile> {
                         Text(
                           _expanded ? '탭하면 이 조합을 불러옵니다' : '탭하면 결과를 펼칩니다',
                           style: const TextStyle(
-                            fontSize: 11,
+                            fontSize: 14,
                             color: kAccentPurple,
                             fontWeight: FontWeight.w700,
                           ),
@@ -483,7 +483,7 @@ class _SavedCombinationTileState extends State<_SavedCombinationTile> {
                                             style: const TextStyle(
                                               fontWeight: FontWeight.w700,
                                               color: kSubHeaderColor,
-                                              fontSize: 12,
+                                              fontSize: 14,
                                             ),
                                           ),
                                   ),
