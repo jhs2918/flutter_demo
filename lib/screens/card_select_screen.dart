@@ -521,17 +521,11 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => AiGenerationResultScreen(
-          initialStatusText: record.status,
-          initialActionText: record.action,
+          initialText: record.text,
           selectedLabels: selectedLabels,
           onRegenerate: (String additionalRequest) => _aiRecordApi
               .generate(_buildPayload(additionalRequest: additionalRequest))
-              .then(
-                (AiGeneratedRecord r) => <String>[
-                  r.status,
-                  r.action,
-                ].where((String s) => s.isNotEmpty).join(' '),
-              ),
+              .then((AiGeneratedRecord r) => r.text),
           onSave: _saveCombination,
           existingNames: _savedCombinations
               .map((SavedCardCombination c) => c.name)

@@ -476,14 +476,16 @@ class _SavedCombinationTileState extends State<_SavedCombinationTile> {
                               Row(
                                 children: <Widget>[
                                   Expanded(
-                                    child: Text(
-                                      '[${result.label}]',
-                                      style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        color: kSubHeaderColor,
-                                        fontSize: 12,
-                                      ),
-                                    ),
+                                    child: result.label.isEmpty
+                                        ? const SizedBox.shrink()
+                                        : Text(
+                                            '[${result.label}]',
+                                            style: const TextStyle(
+                                              fontWeight: FontWeight.w700,
+                                              color: kSubHeaderColor,
+                                              fontSize: 12,
+                                            ),
+                                          ),
                                   ),
                                   // [18] 아이콘이 아닌 글자 버튼("복사").
                                   TextButton(

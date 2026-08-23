@@ -39,16 +39,14 @@ class _ResultEntry {
 class AiGenerationResultScreen extends StatefulWidget {
   const AiGenerationResultScreen({
     super.key,
-    required this.initialStatusText,
-    required this.initialActionText,
+    required this.initialText,
     required this.onRegenerate,
     this.selectedLabels = const <String>[],
     this.onSave,
     this.existingNames = const <String>[],
   });
 
-  final String initialStatusText;
-  final String initialActionText;
+  final String initialText;
   final Future<String> Function(String additionalRequest) onRegenerate;
   // [12] 결과 위에 "어떤 단어를 선택했는지" 보여줄 카드 라벨 목록.
   final List<String> selectedLabels;
@@ -67,9 +65,11 @@ class AiGenerationResultScreen extends StatefulWidget {
 
 class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
   final TextEditingController _refineController = TextEditingController();
+  // [19] 상태·조치·반응이 하나로 합쳐진 문장 하나만 오므로 라벨 없이 결과
+  // 박스 하나만 시작 항목으로 둔다. 재요청 결과는 요청 문구를 라벨 삼아
+  // 그 아래에 계속 쌓인다(기존 동작 유지).
   late final List<_ResultEntry> _entries = <_ResultEntry>[
-    _ResultEntry(label: '상태', text: widget.initialStatusText),
-    _ResultEntry(label: '조치', text: widget.initialActionText),
+    _ResultEntry(label: '', text: widget.initialText),
   ];
   bool _isRegenerating = false;
 
@@ -115,7 +115,11 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
 
   Future<void> _copy() async {
     final String combined = _entries
-        .map((_ResultEntry e) => '[${e.label}]\n${e.controller.text}')
+        .map(
+          (_ResultEntry e) => e.label.isEmpty
+              ? e.controller.text
+              : '[${e.label}]\n${e.controller.text}',
+        )
         .join('\n\n');
     await Clipboard.setData(ClipboardData(text: combined));
     if (!mounted) return;
@@ -479,13 +483,15 @@ class _ResultBox extends StatelessWidget {
           Row(
             children: <Widget>[
               Expanded(
-                child: Text(
-                  '[${entry.label}]',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.w800,
-                    color: kAccentPurple,
-                  ),
-                ),
+                child: entry.label.isEmpty
+                    ? const SizedBox.shrink()
+                    : Text(
+                        '[${entry.label}]',
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          color: kAccentPurple,
+                        ),
+                      ),
               ),
               // [17][18] 결과창마다 개별 복사 버튼(아이콘이 아닌 글자 버튼).
               TextButton(

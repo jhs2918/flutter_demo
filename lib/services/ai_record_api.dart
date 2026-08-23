@@ -21,13 +21,11 @@ class AiRecordApiException implements Exception {
   String toString() => message;
 }
 
-/// [11] /generate 응답. 화면에 [상태]/[조치] 칸이 따로 있어서 백엔드가 둘을
-/// 나눠 돌려준다 - 상태 관찰과 그에 따른 조치를 한 문단에 섞지 않기 위함.
+/// [19] /generate 응답. 상태→조치→반응이 하나로 이어진 문장 하나만 온다.
 class AiGeneratedRecord {
-  const AiGeneratedRecord({required this.status, required this.action});
+  const AiGeneratedRecord({required this.text});
 
-  final String status;
-  final String action;
+  final String text;
 }
 
 /// [07] 선택된 카테고리별 항목을 백엔드 /generate에 전달해 AI가 작성한
@@ -63,12 +61,11 @@ class AiRecordApi {
     try {
       final Map<String, dynamic> decoded =
           jsonDecode(response.body) as Map<String, dynamic>;
-      final String status = decoded['status'] as String? ?? '';
-      final String action = decoded['action'] as String? ?? '';
-      if (status.isEmpty && action.isEmpty) {
+      final String text = decoded['record'] as String? ?? '';
+      if (text.isEmpty) {
         throw const AiRecordApiException();
       }
-      return AiGeneratedRecord(status: status, action: action);
+      return AiGeneratedRecord(text: text);
     } on AiRecordApiException {
       rethrow;
     } on Object {

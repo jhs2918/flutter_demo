@@ -4,7 +4,7 @@
 class SavedResultEntry {
   const SavedResultEntry({required this.label, required this.text});
 
-  // "상태" / "조치" 또는 재요청 문구(예: "더 짧게 써줘").
+  // 최초 생성 결과는 빈 문자열, 재요청 결과는 그 요청 문구(예: "더 짧게 써줘").
   final String label;
   final String text;
 
