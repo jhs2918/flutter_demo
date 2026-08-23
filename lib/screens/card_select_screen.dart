@@ -496,7 +496,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
           : 'day_care',
       'record_type': widget.recordTypeLabel,
       if (selections.isNotEmpty) 'selections': selections,
-      // [20] 백엔드가 문장 길이 제한(기본 50자, 상태 3개 이상이면 75자)을
+      // [20] 백엔드가 문장 길이 제한(기본 50자, 상태 3개 이상이면 60자)을
       // 판단할 때 쓴다 - 화면의 경고 배너와 같은 기준으로 센 값.
       'observation_item_count': _observationSelectedCount,
     };

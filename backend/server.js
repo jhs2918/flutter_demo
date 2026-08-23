@@ -26,7 +26,7 @@ const COMMON_GUIDELINE = `당신은 방문요양 상태변화기록지를 작성
    절대 금지이며, 선택 항목을 하나의 상황으로 통합하여 서술할 것(단, 항목이 1개뿐이면
    통합할 것도 없으니 그 항목만 그대로 서술할 것). 전체 문장 길이는 기본적으로 50자
    내외로 짧게 쓰되, 사용자 메시지의 "문장 길이 제한" 안내(상태 관련 선택 항목이 3개
-   이상이면 최대 75자까지 허용)를 그대로 따를 것 - 불필요한 수식어·상투적인 연결구를
+   이상이면 최대 60자까지 허용)를 그대로 따를 것 - 불필요한 수식어·상투적인 연결구를
    넣어 늘리지 말고 핵심 정보만 남길 것.
 3. 상태를 서술할 때 쓴 단어·구절을 반응 문장에서 그대로 반복하지 말 것 - 예) "발에 걸리는
    모습이 관찰되어 ... 발에 걸리는 현상이 줄어든 모습이 관찰됨"(X, 같은 표현 반복) 대신
@@ -216,7 +216,7 @@ function buildUserMessage(payload) {
   const observationCount = typeof payload.observation_item_count === 'number'
     ? payload.observation_item_count
     : countObservationItems(selections);
-  const maxChars = observationCount >= 3 ? 75 : 50;
+  const maxChars = observationCount >= 3 ? 60 : 50;
   lines.push(
     '',
     `문장 길이 제한: 상태(관찰) 관련 선택 항목이 ${observationCount}개이므로 이번 문장은 ` +
