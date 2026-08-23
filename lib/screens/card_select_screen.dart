@@ -10,15 +10,10 @@ import '../state/font_scale_controller.dart';
 import '../theme/pastel_palette.dart';
 import '../widgets/ai_generating_dialog.dart';
 import '../widgets/font_scale_bar.dart';
+import '../widgets/glossy_chip.dart';
 import 'ai_generation_result_screen.dart';
 import 'saved_combinations_screen.dart';
 
-const Color _kNeutralBg = Color(0xFFF1F1F1);
-const Color _kNeutralText = Color(0xFF444444);
-// 내가 직접 추가한 낱말카드를 구분하는 색(연두). 선택 테두리(보라)와
-// 겹쳐도 헷갈리지 않도록 다른 색상 계열을 쓴다.
-const Color _kCustomBg = Color(0xFFD8F5DE);
-const Color _kCustomText = Color(0xFF1B6B3A);
 // 값이 입력된 입력 카드 강조색.
 const Color _kNumberFilledBg = Color(0xFFF3E9FF);
 
@@ -26,6 +21,43 @@ const Color _kNumberFilledBg = Color(0xFFF3E9FF);
 // 붙는 공통 버튼. 데이터(cards.json)에 카테고리마다 반복해서 넣지 않고
 // 화면에서 매 카테고리 그룹 목록 끝에 덧붙인다.
 const String _kCareLevelGroupName = '조치상황';
+
+// [21] 섹션(그룹) 테두리·배경·라벨 색. "상태"/"조치"/"조치상황"만 정해져
+// 있고, 그 외 그룹(증상·방향·부위·인지상태 소분류 등)은 관찰 성격이 가장
+// 가까운 "상태" 팔레트를 기본값으로 쓴다.
+class _SectionPalette {
+  const _SectionPalette({
+    required this.bg,
+    required this.border,
+    required this.label,
+  });
+
+  final Color bg;
+  final Color border;
+  final Color label;
+}
+
+const _SectionPalette _kStatusPalette = _SectionPalette(
+  bg: Color(0xFFFFF7FA),
+  border: Color(0xFFF5D3E1),
+  label: Color(0xFFC42260),
+);
+const _SectionPalette _kActionPalette = _SectionPalette(
+  bg: Color(0xFFFFF9F4),
+  border: Color(0xFFF2DCCB),
+  label: Color(0xFFB5642A),
+);
+const _SectionPalette _kCareLevelPalette = _SectionPalette(
+  bg: Color(0xFFF6F8FD),
+  border: Color(0xFFD8E0F0),
+  label: Color(0xFF3E5A96),
+);
+
+_SectionPalette _paletteForGroup(String name) {
+  if (name == _kCareLevelGroupName) return _kCareLevelPalette;
+  if (name.endsWith('조치')) return _kActionPalette;
+  return _kStatusPalette;
+}
 
 /// [낱말카드 개편 v2][3단계] 카테고리(접기/펼치기) → 그룹 → 항목 카드를 보여주고
 /// 선택하는 화면. 시설·기록유형에 맞는 카테고리만 이미 cards.json에서 갈라져
@@ -496,8 +528,8 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
           : 'day_care',
       'record_type': widget.recordTypeLabel,
       if (selections.isNotEmpty) 'selections': selections,
-      // [20] 백엔드가 문장 길이 제한(기본 50자, 상태 3개 이상이면 60자)을
-      // 판단할 때 쓴다 - 화면의 경고 배너와 같은 기준으로 센 값.
+      // [20][22] 백엔드가 상태 항목마다 문장을 몇 개 나눠 쓸지 판단할 때
+      // 쓴다 - 화면의 경고 배너와 같은 기준으로 센 값.
       'observation_item_count': _observationSelectedCount,
     };
 
@@ -644,7 +676,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                           SizedBox(width: 6 * scale),
                           Expanded(
                             child: Text(
-                              '선택한 상태 항목이 많아 문장이 다소 길어질 수 있어요',
+                              '선택한 상태 항목이 많아 문장이 여러 개로 나뉘어 길어질 수 있어요',
                               style: TextStyle(
                                 color: Colors.orange.shade800,
                                 fontWeight: FontWeight.w600,
@@ -656,6 +688,38 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                       ),
                     ),
                   ),
+                // [22] 카테고리 목록 바로 위 안내 배너 - 상태만 골라도 AI가
+                // 조치·조치상황까지 알아서 써준다는 걸 미리 알려준다.
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 8,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE3F2FD),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(color: Colors.blue[200]!),
+                    ),
+                    child: Row(
+                      children: <Widget>[
+                        const Text('💡', style: TextStyle(fontSize: 16)),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            '상태만 선택해도 AI가 맞춤 조치와 조치상황을 자동으로 작성합니다',
+                            style: TextStyle(
+                              fontSize: 13.5,
+                              color: Colors.blue[800],
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
                 // [버그 회피] ListView(children:)도 내부적으로 Sliver를 쓰기
                 // 때문에 뷰포트 근처 항목만 지연 생성된다. 카테고리가 많은
                 // 기록유형(간호 및 처치 등)을 대비해 전부 즉시 빌드하는
@@ -804,7 +868,8 @@ class _CategoryPanel extends StatelessWidget {
                   child: Text(
                     category.name,
                     style: const TextStyle(
-                      fontWeight: FontWeight.w800,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                       color: kCardTitleColor,
                     ),
                   ),
@@ -910,131 +975,96 @@ class _GroupSection extends StatelessWidget {
   Widget build(BuildContext context) {
     if (items.isEmpty && !showAddButton) return const SizedBox.shrink();
 
+    final _SectionPalette palette = _paletteForGroup(group.name);
+
+    // [21] 섹션 이름을 테두리 위에 걸치는 알약(pill)으로 얹기 위해 Stack을
+    // 쓴다. clipBehavior: none이라야 pill이 박스 위로 삐져나온 부분이 잘려
+    // 안 보이는 일이 없다. 바깥 Padding의 top을 pill이 필요로 하는 여백
+    // (10*scale)만큼 남겨둬야 카테고리를 펼쳤을 때 첫 섹션의 pill도 잘리지
+    // 않는다.
     return Padding(
-      padding: EdgeInsets.fromLTRB(16, 0, 16, 14 * scale),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: EdgeInsets.fromLTRB(16, 10 * scale, 16, 18 * scale),
+      child: Stack(
+        clipBehavior: Clip.none,
         children: <Widget>[
-          Text(
-            group.name,
-            style: const TextStyle(
-              fontWeight: FontWeight.w700,
-              color: kSubHeaderColor,
+          Container(
+            width: double.infinity,
+            decoration: BoxDecoration(
+              color: palette.bg,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: palette.border, width: 1.5),
+            ),
+            padding: EdgeInsets.fromLTRB(
+              12 * scale,
+              20 * scale,
+              12 * scale,
+              12 * scale,
+            ),
+            child: Wrap(
+              spacing: 11 * scale,
+              runSpacing: 11 * scale,
+              children: <Widget>[
+                for (final CardItem item in items)
+                  if (item.isInputField)
+                    _NumberInputChip(
+                      scale: scale,
+                      label: item.label,
+                      unit: item.unit ?? '',
+                      value: numericValues[keyOf(item)] ?? '',
+                      isNumeric: item.isNumericInput,
+                      onChanged: (String value) =>
+                          onNumericChanged(keyOf(item), value),
+                    )
+                  else
+                    GlossyChip(
+                      scale: scale,
+                      label: item.label,
+                      selected: isSelected(keyOf(item)),
+                      isCustom: isCustom(item.label),
+                      onTap: () => onToggle(keyOf(item)),
+                      onLongPress: isCustom(item.label)
+                          ? () => onDeleteCustom(item.label)
+                          : null,
+                    ),
+                if (showAddButton)
+                  ActionChip(
+                    avatar: const Icon(
+                      Icons.add,
+                      size: 18,
+                      color: kAccentPurple,
+                    ),
+                    label: const Text('버튼 추가'),
+                    backgroundColor: Colors.white,
+                    side: const BorderSide(color: kCardBorder),
+                    onPressed: onAddCustom,
+                  ),
+              ],
             ),
           ),
-          SizedBox(height: 8 * scale),
-          Wrap(
-            spacing: 8 * scale,
-            runSpacing: 8 * scale,
-            children: <Widget>[
-              for (final CardItem item in items)
-                if (item.isInputField)
-                  _NumberInputChip(
-                    scale: scale,
-                    label: item.label,
-                    unit: item.unit ?? '',
-                    value: numericValues[keyOf(item)] ?? '',
-                    isNumeric: item.isNumericInput,
-                    onChanged: (String value) =>
-                        onNumericChanged(keyOf(item), value),
-                  )
-                else
-                  _CardItemChip(
-                    scale: scale,
-                    label: item.label,
-                    selected: isSelected(keyOf(item)),
-                    isCustom: isCustom(item.label),
-                    onTap: () => onToggle(keyOf(item)),
-                    onDelete: isCustom(item.label)
-                        ? () => onDeleteCustom(item.label)
-                        : null,
-                  ),
-              if (showAddButton)
-                ActionChip(
-                  avatar: const Icon(Icons.add, size: 18, color: kAccentPurple),
-                  label: const Text('버튼 추가'),
-                  backgroundColor: Colors.white,
-                  side: const BorderSide(color: kCardBorder),
-                  onPressed: onAddCustom,
+          Positioned(
+            top: -10 * scale,
+            left: 12 * scale,
+            child: Container(
+              padding: EdgeInsets.symmetric(
+                horizontal: 12 * scale,
+                vertical: 2 * scale,
+              ),
+              decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(color: palette.border, width: 1.5),
+              ),
+              child: Text(
+                group.name,
+                style: TextStyle(
+                  fontSize: 12 * scale,
+                  fontWeight: FontWeight.w600,
+                  color: palette.label,
                 ),
-            ],
+              ),
+            ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-// 배경색 = 내가 추가한 카드 여부, 테두리+체크 아이콘 = 선택 여부. 서로 다른
-// 시각 채널이라 겹쳐도(배경+테두리) 항상 구분된다.
-class _CardItemChip extends StatelessWidget {
-  const _CardItemChip({
-    required this.scale,
-    required this.label,
-    required this.selected,
-    required this.isCustom,
-    required this.onTap,
-    this.onDelete,
-  });
-
-  final double scale;
-  final String label;
-  final bool selected;
-  final bool isCustom;
-  final VoidCallback onTap;
-  final VoidCallback? onDelete;
-
-  @override
-  Widget build(BuildContext context) {
-    // [13] 선택 여부가 배경색으로도 드러나야 한다는 요청 - 선택되면 테두리·
-    // 체크 아이콘뿐 아니라 배경도 진한 보라로 바뀐다(기존 미사용 상태였던
-    // kWordButtonSelectedBg/kWordButtonSelectedText를 재사용). 커스텀 카드
-    // 표시(연두 배경)는 선택되지 않았을 때만 보이고, 선택되면 별 아이콘으로만
-    // 구분한다 - 두 배경색이 동시에 경쟁하면 오히려 선택 여부가 덜 도드라진다.
-    final Color bg = selected
-        ? kWordButtonSelectedBg
-        : (isCustom ? _kCustomBg : _kNeutralBg);
-    final Color textColor = selected
-        ? kWordButtonSelectedText
-        : (isCustom ? _kCustomText : _kNeutralText);
-
-    return Material(
-      color: Colors.transparent,
-      child: InkWell(
-        borderRadius: BorderRadius.circular(12),
-        onTap: onTap,
-        onLongPress: onDelete,
-        child: Container(
-          padding: EdgeInsets.symmetric(
-            horizontal: 14 * scale,
-            vertical: 10 * scale,
-          ),
-          decoration: BoxDecoration(
-            color: bg,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: selected ? kCardSelectedBorder : Colors.transparent,
-              width: 2,
-            ),
-          ),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: <Widget>[
-              if (selected) ...<Widget>[
-                Icon(Icons.check_circle, size: 16, color: textColor),
-                SizedBox(width: 6 * scale),
-              ],
-              Text(
-                label,
-                style: TextStyle(color: textColor, fontWeight: FontWeight.w600),
-              ),
-              if (isCustom) ...<Widget>[
-                SizedBox(width: 4 * scale),
-                Icon(Icons.star, size: 12 * scale, color: textColor),
-              ],
-            ],
-          ),
-        ),
       ),
     );
   }
