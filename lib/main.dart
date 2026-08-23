@@ -16,10 +16,10 @@ void main() {
   runApp(const CareRecorderApp());
 }
 
-/// 앱 최상위 위젯. 테마와 한국어 로케일을 설정하고 [낱말카드 개편] 서비스
-/// 선택 화면부터 시작하는 새 급여제공기록 플로우를 띄운다. [FontScaleScope]를
-/// MaterialApp 바깥에 둬서 서비스 선택→등급 선택→카드 선택→AI 결과 어느
-/// 화면에서 글자 크기를 조절해도 전체에 즉시 반영된다.
+/// 앱 최상위 위젯. 테마와 한국어 로케일을 설정하고 [상태변화일지 전용판] 서비스
+/// 선택 화면부터 시작하는 플로우를 띄운다. [FontScaleScope]를 MaterialApp
+/// 바깥에 둬서 서비스 선택→카드 선택→AI 결과 어느 화면에서 글자 크기를
+/// 조절해도 전체에 즉시 반영된다.
 class CareRecorderApp extends StatefulWidget {
   const CareRecorderApp({super.key});
 
