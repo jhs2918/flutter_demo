@@ -289,12 +289,33 @@ app.post('/generate', async (req, res) => {
     // 명시적으로 껐었다), Haiku 4.5 같은 구형 티어는 thinking이 기본 꺼짐
     // 상태이고 `{type: "disabled"}` 형태 자체를 지원하지 않으므로 파라미터를
     // 아예 넘기지 않는다.
+    // [24] 프롬프트 캐싱: 지침(system)은 record_type이 같으면 요청마다 완전히
+    // 동일한 문자열이라 - 그 부분만 cache_control로 캐시해둔다. 첫 요청은
+    // 그대로 과금되고(cache_creation_input_tokens, 약 1.25배), 이후 같은
+    // 지침으로 오는 요청은 캐시 히트로 입력 토큰 비용이 크게 줄어든다
+    // (cache_read_input_tokens, 약 0.1배). 기본 TTL(5분)을 그대로 쓴다.
     const message = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 1536,
-      system: buildSystemPrompt(payload.record_type),
+      system: [
+        {
+          type: 'text',
+          text: buildSystemPrompt(payload.record_type),
+          cache_control: { type: 'ephemeral' },
+        },
+      ],
       messages: [{ role: 'user', content: buildUserMessage(payload) }],
     });
+
+    console.log(
+      '토큰 사용량:',
+      JSON.stringify({
+        input: message.usage?.input_tokens,
+        cache_write: message.usage?.cache_creation_input_tokens,
+        cache_read: message.usage?.cache_read_input_tokens,
+        output: message.usage?.output_tokens,
+      }),
+    );
 
     const text = message.content
       .filter((block) => block.type === 'text')
