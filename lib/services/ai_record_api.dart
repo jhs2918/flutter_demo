@@ -21,11 +21,12 @@ class AiRecordApiException implements Exception {
   String toString() => message;
 }
 
-/// [19] /generate 응답. 상태→조치→반응이 하나로 이어진 문장 하나만 온다.
+/// [19][23] /generate 응답. 상태→조치→반응이 하나로 이어진 문장들 - 요청
+/// 시점에 고른 모드(합치기/나누기)에 따라 1개(합치기) 또는 여러 개(나누기)다.
 class AiGeneratedRecord {
-  const AiGeneratedRecord({required this.text});
+  const AiGeneratedRecord({required this.texts});
 
-  final String text;
+  final List<String> texts;
 }
 
 /// [07] 선택된 카테고리별 항목을 백엔드 /generate에 전달해 AI가 작성한
@@ -61,11 +62,14 @@ class AiRecordApi {
     try {
       final Map<String, dynamic> decoded =
           jsonDecode(response.body) as Map<String, dynamic>;
-      final String text = decoded['record'] as String? ?? '';
-      if (text.isEmpty) {
+      final List<String> texts = (decoded['records'] as List<dynamic>? ?? [])
+          .whereType<String>()
+          .where((String s) => s.isNotEmpty)
+          .toList();
+      if (texts.isEmpty) {
         throw const AiRecordApiException();
       }
-      return AiGeneratedRecord(text: text);
+      return AiGeneratedRecord(texts: texts);
     } on AiRecordApiException {
       rethrow;
     } on Object {

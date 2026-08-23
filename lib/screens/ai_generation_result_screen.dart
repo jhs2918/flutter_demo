@@ -39,14 +39,16 @@ class _ResultEntry {
 class AiGenerationResultScreen extends StatefulWidget {
   const AiGenerationResultScreen({
     super.key,
-    required this.initialText,
+    required this.initialTexts,
     required this.onRegenerate,
     this.selectedLabels = const <String>[],
     this.onSave,
     this.existingNames = const <String>[],
   });
 
-  final String initialText;
+  // [23] 합치기를 골랐으면 문자열 1개, 항목별로 나누기를 골랐으면 여러
+  // 개 - 각각 독립된 결과 박스로 보여준다.
+  final List<String> initialTexts;
   final Future<String> Function(String additionalRequest) onRegenerate;
   // [12] 결과 위에 "어떤 단어를 선택했는지" 보여줄 카드 라벨 목록.
   final List<String> selectedLabels;
@@ -65,11 +67,12 @@ class AiGenerationResultScreen extends StatefulWidget {
 
 class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
   final TextEditingController _refineController = TextEditingController();
-  // [19] 상태·조치·반응이 하나로 합쳐진 문장 하나만 오므로 라벨 없이 결과
-  // 박스 하나만 시작 항목으로 둔다. 재요청 결과는 요청 문구를 라벨 삼아
-  // 그 아래에 계속 쌓인다(기존 동작 유지).
+  // [19][23] 초기 결과는 라벨 없이 박스로 둔다 - 합치기를 골랐으면 박스
+  // 1개, 항목별로 나누기를 골랐으면 항목 수만큼 박스가 생긴다. 재요청
+  // 결과는 요청 문구를 라벨 삼아 그 아래에 계속 쌓인다(기존 동작 유지).
   late final List<_ResultEntry> _entries = <_ResultEntry>[
-    _ResultEntry(label: '', text: widget.initialText),
+    for (final String text in widget.initialTexts)
+      _ResultEntry(label: '', text: text),
   ];
   bool _isRegenerating = false;
 

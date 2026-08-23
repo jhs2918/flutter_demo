@@ -455,7 +455,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   // 전제로 한 스키마이지만, 지금 앱은 여러 카테고리를 한꺼번에 채워서
   // 제출하므로 care_level/body_part를 카테고리별로 중첩시켜 보낸다(지침의
   // 필드명은 그대로 유지).
-  Map<String, dynamic> _buildPayload({String? additionalRequest}) {
+  Map<String, dynamic> _buildPayload({String? additionalRequest, String? mode}) {
     final Map<String, dynamic> selections = <String, dynamic>{};
     final List<String> inputLines = <String>[];
 
@@ -528,9 +528,12 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
           : 'day_care',
       'record_type': widget.recordTypeLabel,
       if (selections.isNotEmpty) 'selections': selections,
-      // [20][22] 백엔드가 상태 항목마다 문장을 몇 개 나눠 쓸지 판단할 때
+      // [20][22][23] 백엔드가 상태 항목마다 문장을 몇 개 나눠 쓸지 판단할 때
       // 쓴다 - 화면의 경고 배너와 같은 기준으로 센 값.
       'observation_item_count': _observationSelectedCount,
+      // [23] 상태 항목 2개 이상일 때 사용자가 고른 값('merged'|'split').
+      // 지정하지 않으면(재요청 등) 백엔드가 기본값(합치기)으로 처리한다.
+      'mode': ?mode,
     };
 
     final String opinion = _opinionController.text.trim();
@@ -552,10 +555,44 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   List<String> get _selectedWordLabels =>
       _selected.map(_labelForKey).toList();
 
+  // [23] 상태 항목 2개 이상 선택 시 "한 문장으로 합칠지 / 항목별로 나눌지"를
+  // 물어본다. 취소하면 null을 돌려줘서 생성을 중단시킨다.
+  Future<String?> _askSentenceMode() {
+    return showDialog<String>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('문장 작성 방식'),
+        content: const Text('선택한 상태 항목이 여러 개예요. 어떻게 작성할까요?'),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('취소'),
+          ),
+          OutlinedButton(
+            onPressed: () => Navigator.of(context).pop('merged'),
+            child: const Text('한 문장으로'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop('split'),
+            child: const Text('항목별로 따로'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _generate() async {
-    final Map<String, dynamic> payload = _buildPayload();
+    String mode = 'merged';
+    if (_observationSelectedCount >= 2) {
+      final String? chosen = await _askSentenceMode();
+      if (chosen == null) return;
+      mode = chosen;
+    }
+
+    final Map<String, dynamic> payload = _buildPayload(mode: mode);
     final List<String> selectedLabels = _selectedWordLabels;
 
+    if (!mounted) return;
     showDialog<void>(
       context: context,
       barrierDismissible: false,
@@ -578,11 +615,13 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => AiGenerationResultScreen(
-          initialText: record.text,
+          initialTexts: record.texts,
           selectedLabels: selectedLabels,
+          // 다시 요청하기는 항상 문장 하나로 합쳐서 새 결과창을 하나 더
+          // 쌓는다(초기 생성 때 고른 모드와 무관).
           onRegenerate: (String additionalRequest) => _aiRecordApi
               .generate(_buildPayload(additionalRequest: additionalRequest))
-              .then((AiGeneratedRecord r) => r.text),
+              .then((AiGeneratedRecord r) => r.texts.join(' ')),
           onSave: _saveCombination,
           existingNames: _savedCombinations
               .map((SavedCardCombination c) => c.name)
