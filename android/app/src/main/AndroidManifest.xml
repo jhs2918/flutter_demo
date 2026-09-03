@@ -2,7 +2,7 @@
     <!-- [07] 백엔드 /generate 호출을 위해 필요. -->
     <uses-permission android:name="android.permission.INTERNET"/>
     <application
-        android:label="케어노트"
+        android:label="스마트요양일지 - 방문,주간보호 상태변화 AI작성도우미"
         android:name="${applicationName}"
         android:icon="@mipmap/ic_launcher">
         <activity

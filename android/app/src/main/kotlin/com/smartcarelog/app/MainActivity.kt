@@ -1,4 +1,4 @@
-package com.example.flutter_demo
+package com.smartcarelog.app
 
 import io.flutter.embedding.android.FlutterActivity
 
