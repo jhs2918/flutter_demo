@@ -25,9 +25,13 @@ Future<void> _waitForSpinnerToClear(WidgetTester tester) async {
 void main() {
   // 카드 선택 화면은 CustomCardItemRepository를 통해 SharedPreferences를
   // 읽으므로, 목 값을 미리 설정해두지 않으면 getInstance()가 끝없이 대기해
-  // pumpAndSettle이 타임아웃난다.
+  // pumpAndSettle이 타임아웃난다. onboarding_dont_show_again을 미리 켜두지
+  // 않으면 앱 실행 직후 사용법 안내 화면이 자동으로 뜨면서 서비스 선택
+  // 화면의 텍스트를 못 찾아 실패한다.
   setUp(() {
-    SharedPreferences.setMockInitialValues(<String, Object>{});
+    SharedPreferences.setMockInitialValues(<String, Object>{
+      'onboarding_dont_show_again': true,
+    });
   });
 
   testWidgets('앱을 실행하면 방문요양/주간보호 서비스 선택 화면이 표시된다', (WidgetTester tester) async {

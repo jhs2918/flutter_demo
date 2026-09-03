@@ -5,6 +5,7 @@ import 'package:google_mobile_ads/google_mobile_ads.dart';
 
 import 'screens/service_select_screen.dart';
 import 'state/font_scale_controller.dart';
+import 'state/purchase_controller.dart';
 import 'theme/pastel_palette.dart';
 
 // 앱 진입점. [AdMob] 전면광고 SDK를 앱 시작 시 한 번 초기화해둔다. google_mobile_ads는
@@ -29,6 +30,7 @@ class CareRecorderApp extends StatefulWidget {
 
 class _CareRecorderAppState extends State<CareRecorderApp> {
   final FontScaleController _fontScaleController = FontScaleController();
+  final PurchaseController _purchaseController = PurchaseController();
 
   @override
   void initState() {
@@ -36,11 +38,15 @@ class _CareRecorderAppState extends State<CareRecorderApp> {
     // 저장된 글자 크기 배율을 불러온다 - 로드가 끝나기 전엔 기본값(100%)으로
     // 잠깐 보이다가, 저장된 값이 있으면 즉시 그 값으로 바뀐다.
     _fontScaleController.restore();
+    // [수익화] 로컬에 캐시된 구매 등급을 먼저 불러오고, 스토어 상품 정보와
+    // 구매 이력도 이어서 불러온다.
+    _purchaseController.init();
   }
 
   @override
   void dispose() {
     _fontScaleController.dispose();
+    _purchaseController.dispose();
     super.dispose();
   }
 
@@ -48,42 +54,45 @@ class _CareRecorderAppState extends State<CareRecorderApp> {
   Widget build(BuildContext context) {
     return FontScaleScope(
       controller: _fontScaleController,
-      child: MaterialApp(
-        title: '스마트요양일지 - 방문,주간보호 상태변화 AI작성도우미',
-        // 날짜 선택기 등 머티리얼 위젯을 한국어로 표시하기 위한 델리게이트.
-        localizationsDelegates: const <LocalizationsDelegate<Object>>[
-          GlobalMaterialLocalizations.delegate,
-          GlobalWidgetsLocalizations.delegate,
-          GlobalCupertinoLocalizations.delegate,
-        ],
-        // 한국어만 지원한다.
-        supportedLocales: const <Locale>[Locale('ko')],
-        locale: const Locale('ko'),
-        // [전면개편] 파스텔 핑크·라벤더 톤으로 앱 전체 테마를 맞춘다.
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(
-            seedColor: kAccentPurple,
-            surface: kAppBackground,
+      child: PurchaseScope(
+        controller: _purchaseController,
+        child: MaterialApp(
+          title: '스마트요양일지 - 방문,주간보호 상태변화 AI작성도우미',
+          // 날짜 선택기 등 머티리얼 위젯을 한국어로 표시하기 위한 델리게이트.
+          localizationsDelegates: const <LocalizationsDelegate<Object>>[
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          // 한국어만 지원한다.
+          supportedLocales: const <Locale>[Locale('ko')],
+          locale: const Locale('ko'),
+          // [전면개편] 파스텔 핑크·라벤더 톤으로 앱 전체 테마를 맞춘다.
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: kAccentPurple,
+              surface: kAppBackground,
+            ),
+            scaffoldBackgroundColor: kAppBackground,
+            appBarTheme: const AppBarTheme(centerTitle: false),
           ),
-          scaffoldBackgroundColor: kAppBackground,
-          appBarTheme: const AppBarTheme(centerTitle: false),
+          // [낱말카드 개편] --font-scale 배율을 앱 전체 텍스트에 자동으로
+          // 적용한다. 개별 위젯에 글자 크기를 하드코딩할 필요가 없다.
+          builder: (BuildContext context, Widget? child) {
+            return AnimatedBuilder(
+              animation: _fontScaleController,
+              builder: (BuildContext context, Widget? _) {
+                return MediaQuery(
+                  data: MediaQuery.of(context).copyWith(
+                    textScaler: TextScaler.linear(_fontScaleController.scale),
+                  ),
+                  child: child!,
+                );
+              },
+            );
+          },
+          home: const ServiceSelectScreen(),
         ),
-        // [낱말카드 개편] --font-scale 배율을 앱 전체 텍스트에 자동으로
-        // 적용한다. 개별 위젯에 글자 크기를 하드코딩할 필요가 없다.
-        builder: (BuildContext context, Widget? child) {
-          return AnimatedBuilder(
-            animation: _fontScaleController,
-            builder: (BuildContext context, Widget? _) {
-              return MediaQuery(
-                data: MediaQuery.of(context).copyWith(
-                  textScaler: TextScaler.linear(_fontScaleController.scale),
-                ),
-                child: child!,
-              );
-            },
-          );
-        },
-        home: const ServiceSelectScreen(),
       ),
     );
   }

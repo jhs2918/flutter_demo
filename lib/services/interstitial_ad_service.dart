@@ -2,14 +2,13 @@ import 'dart:async';
 
 import 'package:google_mobile_ads/google_mobile_ads.dart';
 
-/// [AdMob] AI 문장 생성 로딩 중에 노출하는 전면광고를 미리 불러와 두었다가
-/// 필요할 때 바로 보여준다. 광고 로드/표시에 실패해도 생성 흐름을 막지
-/// 않도록 항상 조용히 실패를 흡수한다.
+/// [AdMob][수익화] "문장 생성" 결과를 보여주기 직전에 노출하는 전면광고를
+/// 미리 불러와 두었다가 필요할 때 바로 보여준다. 광고 로드/표시에 실패해도
+/// 생성 흐름을 막지 않도록 항상 조용히 실패를 흡수한다.
 class InterstitialAdService {
   // [광고 잠시 끔] 광고를 안 띄우고 싶을 땐 이 줄만 비워두면 된다(로드가
-  // 항상 실패로 처리되어 showIfReady()가 조용히 아무 것도 안 함). 다시 켜려면
-  // 원래 광고 단위 ID로 되돌리면 된다: ca-app-pub-7024249117931090/6459013393
-  static const String _adUnitId = '';
+  // 항상 실패로 처리되어 showIfReady()가 조용히 아무 것도 안 함).
+  static const String _adUnitId = 'ca-app-pub-7024249117931090/6459013393';
 
   InterstitialAd? _ad;
   bool _isLoading = false;

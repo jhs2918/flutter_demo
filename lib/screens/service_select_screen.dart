@@ -1,11 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../models/card_catalog.dart';
+import '../models/premium_tier.dart';
 import '../services/onboarding_preferences.dart';
+import '../state/purchase_controller.dart';
 import '../theme/pastel_palette.dart';
+import '../widgets/banner_ad_bar.dart';
 import '../widgets/font_scale_bar.dart';
 import 'card_select_screen.dart';
 import 'onboarding_screen.dart';
+import 'premium_screen.dart';
 
 /// [상태변화일지 전용판] 방문요양/주간보호 서비스 종류를 고른다. 기록유형은
 /// 상태변화일지 하나뿐이라 별도 선택 화면 없이 바로 카드 선택 화면으로
@@ -51,6 +55,10 @@ class _ServiceSelectScreenState extends State<ServiceSelectScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // [수익화] 무료 등급일 때만 상단 배너 광고를 보여준다. PurchaseScope를
+    // 구독해두면 구매가 완료되는 순간 자동으로 다시 그려져 배너가 사라진다.
+    final PremiumTier tier = PurchaseScope.of(context).tier;
+
     return Scaffold(
       backgroundColor: kAppBackground,
       appBar: AppBar(
@@ -58,6 +66,15 @@ class _ServiceSelectScreenState extends State<ServiceSelectScreen> {
         backgroundColor: kSectionHeaderBg,
         foregroundColor: Colors.white,
         actions: <Widget>[
+          IconButton(
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (BuildContext context) => const PremiumScreen(),
+              ),
+            ),
+            icon: const Icon(Icons.workspace_premium),
+            tooltip: '프리미엄',
+          ),
           // [온보딩] 언제든 다시 볼 수 있게 메인 화면 상단에 상시 노출.
           TextButton.icon(
             onPressed: () => showOnboardingScreen(context),
@@ -72,6 +89,7 @@ class _ServiceSelectScreenState extends State<ServiceSelectScreen> {
       ),
       body: Column(
         children: <Widget>[
+          if (tier == PremiumTier.free) const BannerAdBar(),
           const FontScaleBar(),
           Expanded(
             // [글자크기 확대 시 화면 밖으로 넘치는 문제 수정] 글자를 많이

@@ -1,16 +1,22 @@
 import 'package:flutter/material.dart';
 
 import '../models/card_catalog.dart';
+import '../models/premium_tier.dart';
 import '../models/saved_card_combination.dart';
 import '../services/ai_record_api.dart';
 import '../services/card_catalog_repository.dart';
 import '../services/custom_card_item_repository.dart';
+import '../services/interstitial_ad_service.dart';
 import '../services/saved_card_combination_repository.dart';
+import '../services/usage_tracker.dart';
 import '../state/font_scale_controller.dart';
+import '../state/purchase_controller.dart';
 import '../theme/pastel_palette.dart';
 import '../widgets/ai_generating_dialog.dart';
+import '../widgets/banner_ad_bar.dart';
 import '../widgets/font_scale_bar.dart';
 import '../widgets/glossy_chip.dart';
+import '../widgets/upgrade_prompt_dialog.dart';
 import 'ai_generation_result_screen.dart';
 import 'saved_combinations_screen.dart';
 
@@ -85,6 +91,10 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
       SavedCardCombinationRepository();
   final AiRecordApi _aiRecordApi = const AiRecordApi();
   final TextEditingController _opinionController = TextEditingController();
+  // [수익화] 결과를 보여주기 전 전면광고 게이팅에 쓰는 하루 사용량 추적기와
+  // 미리 불러와 두는 전면광고 인스턴스.
+  final UsageTracker _usageTracker = UsageTracker();
+  final InterstitialAdService _interstitialAdService = InterstitialAdService();
 
   CardCatalog? _catalog;
   final Set<String> _selected = <String>{};
@@ -105,12 +115,14 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
   void initState() {
     super.initState();
     _load();
+    _interstitialAdService.preload();
   }
 
   @override
   void dispose() {
     _opinionController.dispose();
     _scrollController.dispose();
+    _interstitialAdService.dispose();
     super.dispose();
   }
 
@@ -688,6 +700,12 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     if (!mounted) return;
     Navigator.of(context).pop();
 
+    // [수익화] 결과를 보여주기 전, 등급·오늘 사용량에 따라 전면광고를
+    // 볼지 가린다. free는 항상 광고, 유료 등급은 하루 무료 횟수를 넘겼을
+    // 때만 광고를 본다.
+    await _maybeShowAdBeforeResult();
+    if (!mounted) return;
+
     await Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => AiGenerationResultScreen(
@@ -711,10 +729,42 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     await _loadSavedCombinations();
   }
 
+  // [수익화] "문장 생성" 1회를 오늘 사용량에 기록하고, 등급·사용량 기준으로
+  // 전면광고를 봐야 하면 보여준다. premium_30 사용자가 오늘 처음 무료
+  // 횟수(30회)를 넘긴 순간에는 광고보다 먼저, 평생 딱 1번만 9,900원
+  // 업그레이드 안내를 띄운다.
+  Future<void> _maybeShowAdBeforeResult() async {
+    final PurchaseController purchases = PurchaseScope.of(context);
+    final int countToday = await _usageTracker.recordUse();
+    bool shouldShowAd = _usageTracker.isOverQuota(purchases.tier, countToday);
+
+    if (shouldShowAd && purchases.tier == PremiumTier.premium30) {
+      final bool alreadyShown = await _usageTracker.hasShownUpgradePrompt();
+      if (!alreadyShown) {
+        await _usageTracker.markUpgradePromptShown();
+        if (!mounted) return;
+        await showUpgradePromptDialog(
+          context,
+          onUpgrade: () =>
+              purchases.buy(PurchaseController.premium100ProductId),
+        );
+        // 다이얼로그에서 업그레이드를 눌렀다면 그 사이 등급이 바뀌었을 수
+        // 있으니 같은 사용 횟수 기준으로 다시 판단한다(재구매 없이는 여전히
+        // 광고를 본다).
+        shouldShowAd = _usageTracker.isOverQuota(purchases.tier, countToday);
+      }
+    }
+
+    if (!shouldShowAd || !mounted) return;
+    await _interstitialAdService.showIfReady();
+  }
+
   @override
   Widget build(BuildContext context) {
     final double scale = FontScaleScope.of(context).scale;
     final CardCatalog? catalog = _catalog;
+    // [수익화] 무료 등급일 때만 상단 배너 광고를 보여준다.
+    final PremiumTier tier = PurchaseScope.of(context).tier;
 
     return Scaffold(
       backgroundColor: kAppBackground,
@@ -727,6 +777,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
           ? const Center(child: CircularProgressIndicator())
           : Column(
               children: <Widget>[
+                if (tier == PremiumTier.free) const BannerAdBar(),
                 const FontScaleBar(),
                 if (_savedCombinations.isNotEmpty)
                   Padding(
