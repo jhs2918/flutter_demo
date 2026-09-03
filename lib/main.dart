@@ -31,6 +31,14 @@ class _CareRecorderAppState extends State<CareRecorderApp> {
   final FontScaleController _fontScaleController = FontScaleController();
 
   @override
+  void initState() {
+    super.initState();
+    // 저장된 글자 크기 배율을 불러온다 - 로드가 끝나기 전엔 기본값(100%)으로
+    // 잠깐 보이다가, 저장된 값이 있으면 즉시 그 값으로 바뀐다.
+    _fontScaleController.restore();
+  }
+
+  @override
   void dispose() {
     _fontScaleController.dispose();
     super.dispose();
@@ -41,7 +49,7 @@ class _CareRecorderAppState extends State<CareRecorderApp> {
     return FontScaleScope(
       controller: _fontScaleController,
       child: MaterialApp(
-        title: '케어노트',
+        title: '스마트요양일지 - 방문,주간보호 상태변화 AI작성도우미',
         // 날짜 선택기 등 머티리얼 위젯을 한국어로 표시하기 위한 델리게이트.
         localizationsDelegates: const <LocalizationsDelegate<Object>>[
           GlobalMaterialLocalizations.delegate,

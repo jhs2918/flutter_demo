@@ -8,12 +8,15 @@ import '../theme/pastel_palette.dart';
 import '../widgets/font_scale_bar.dart';
 
 // 자주 쓰는 재요청을 버튼 한 번으로 바로 보낼 수 있게 미리 준비해둔 문구.
+// [조치 재선택] "다른 조치로 다시 써줘"는 여기 없다 - 텍스트 요청만으로는
+// 조치(action) 항목이 그대로 프롬프트에 남아있어 AI가 실제로 하지 않은
+// 조치를 지어낼 위험이 있다(기록의 사실성 문제). 대신 아래 "다른 조치
+// 선택하기" 버튼으로 실제 재선택을 유도한다.
 const List<String> _kQuickRequests = <String>[
   '더 짧게 써줘',
   '더 자세히 써줘',
   '보호자 연락 내용도 넣어줘',
   '좀 더 부드러운 표현으로',
-  '다른 조치로 다시 써줘',
 ];
 
 class _ResultEntry {
@@ -41,6 +44,7 @@ class AiGenerationResultScreen extends StatefulWidget {
     super.key,
     required this.initialTexts,
     required this.onRegenerate,
+    required this.onPickDifferentAction,
     this.selectedLabels = const <String>[],
     this.onSave,
     this.existingNames = const <String>[],
@@ -50,6 +54,10 @@ class AiGenerationResultScreen extends StatefulWidget {
   // 개 - 각각 독립된 결과 박스로 보여준다.
   final List<String> initialTexts;
   final Future<String> Function(String additionalRequest) onRegenerate;
+  // [조치 재선택] "다른 조치 선택하기"를 누르면 호출부(card_select_screen)가
+  // 기존에 골랐던 조치(action) 카드 선택을 지우고 그 카테고리로 스크롤해
+  // 준다 - 이 화면은 그다음 자신을 pop해서 카드 선택 화면으로 돌아간다.
+  final VoidCallback onPickDifferentAction;
   // [12] 결과 위에 "어떤 단어를 선택했는지" 보여줄 카드 라벨 목록.
   final List<String> selectedLabels;
   // 지정하면 "저장" 버튼이 나타난다. 이름과 지금까지의 결과 창 목록을
@@ -108,6 +116,73 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
   }
 
   Future<void> _send() => _regenerateWith(_refineController.text);
+
+  // [다소 제거] "다소" 같은 모호한 표현을 AI가 자주 넣는 경우를 대비해, AI에게
+  // 다시 써달라고 요청함과 동시에 돌아온 결과에서도 "다소"가 남아있지 않도록
+  // 한 번 더 직접 지운다(요청만으로는 AI가 완전히 지키지 않을 수 있어서).
+  String _stripDaso(String text) {
+    return text
+        .replaceAll('다소', '')
+        .replaceAll(RegExp(r'[ \t]{2,}'), ' ')
+        .replaceAll(RegExp(r'\s+([.,·])'), r'$1')
+        .trim();
+  }
+
+  Future<void> _rewriteWithoutDaso() async {
+    if (_isRegenerating) return;
+    setState(() => _isRegenerating = true);
+
+    try {
+      final String text = await widget.onRegenerate('"다소"라는 표현 없이 다시 써줘');
+      if (!mounted) return;
+      setState(() {
+        _entries.add(
+          _ResultEntry(
+            label: '다소 없이 다시 작성',
+            text: _stripDaso(text),
+            deletable: true,
+          ),
+        );
+      });
+    } on AiRecordApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(error.message)));
+    } finally {
+      if (mounted) setState(() => _isRegenerating = false);
+    }
+  }
+
+  // [조치 재선택] 카드 선택 화면으로 돌아가면 이 화면은 닫혀서 지금까지
+  // 쌓인 결과창(저장 안 한 것)이 사라지므로, 진행 전에 한 번 확인한다.
+  Future<void> _pickDifferentAction() async {
+    final bool confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (BuildContext context) => AlertDialog(
+            title: const Text('다른 조치 선택하기'),
+            content: const Text(
+              '조치 카드를 다시 고르러 이전 화면으로 돌아갑니다.\n'
+              '지금까지 생성된 결과 중 저장하지 않은 내용은 사라집니다.',
+            ),
+            actions: <Widget>[
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('취소'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                child: const Text('돌아가기'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+
+    widget.onPickDifferentAction();
+    Navigator.of(context).pop();
+  }
 
   void _deleteEntry(_ResultEntry entry) {
     setState(() {
@@ -244,6 +319,21 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
                           ],
                         ),
                         SizedBox(height: 10 * scale),
+                        // [조치 재선택] 조치는 실제 수행 여부가 중요한
+                        // 기록이라, 텍스트로 "다른 조치로 다시 써줘"라고
+                        // 요청하는 대신 카드 선택 화면으로 돌아가 실제로
+                        // 다른 조치를 고르게 한다.
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton.icon(
+                            onPressed: _isRegenerating
+                                ? null
+                                : _pickDifferentAction,
+                            icon: const Icon(Icons.swap_horiz),
+                            label: const Text('다른 조치 선택하기'),
+                          ),
+                        ),
+                        SizedBox(height: 10 * scale),
                         // 채팅창처럼 입력창 + 보내기 버튼.
                         Row(
                           crossAxisAlignment: CrossAxisAlignment.end,
@@ -304,23 +394,61 @@ class _AiGenerationResultScreenState extends State<AiGenerationResultScreen> {
                 16 * scale,
                 12 * scale,
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
-                  Expanded(
-                    child: FilledButton.icon(
-                      onPressed: _copy,
-                      icon: const Icon(Icons.copy),
-                      label: const Text('복사'),
+                  // [글자수 표시] 결과 상자들에 지금 담긴 전체 글자수. 직접
+                  // 수정한 내용도 즉시 반영되도록 각 결과의 컨트롤러 변경을
+                  // 그대로 듣는다.
+                  AnimatedBuilder(
+                    animation: Listenable.merge(
+                      _entries.map((_ResultEntry e) => e.controller).toList(),
+                    ),
+                    builder: (BuildContext context, Widget? _) {
+                      final int total = _entries.fold<int>(
+                        0,
+                        (int sum, _ResultEntry e) =>
+                            sum + e.controller.text.length,
+                      );
+                      return Text(
+                        '총 $total자',
+                        style: TextStyle(
+                          fontWeight: FontWeight.w700,
+                          color: kSubHeaderColor,
+                          fontSize: 14 * scale,
+                        ),
+                      );
+                    },
+                  ),
+                  SizedBox(height: 8 * scale),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: _isRegenerating ? null : _rewriteWithoutDaso,
+                      icon: const Icon(Icons.auto_fix_high),
+                      label: const Text('다소 없이 다시 작성'),
                     ),
                   ),
-                  if (widget.onSave != null) ...<Widget>[
-                    SizedBox(width: 8 * scale),
-                    OutlinedButton.icon(
-                      onPressed: _save,
-                      icon: const Text('💾'),
-                      label: const Text('저장'),
-                    ),
-                  ],
+                  SizedBox(height: 8 * scale),
+                  Row(
+                    children: <Widget>[
+                      Expanded(
+                        child: FilledButton.icon(
+                          onPressed: _copy,
+                          icon: const Icon(Icons.copy),
+                          label: const Text('복사'),
+                        ),
+                      ),
+                      if (widget.onSave != null) ...<Widget>[
+                        SizedBox(width: 8 * scale),
+                        OutlinedButton.icon(
+                          onPressed: _save,
+                          icon: const Text('💾'),
+                          label: const Text('저장'),
+                        ),
+                      ],
+                    ],
+                  ),
                 ],
               ),
             ),
@@ -440,15 +568,23 @@ class _SelectedWordsSummary extends StatelessWidget {
           ),
           SizedBox(height: 8 * scale),
           Wrap(
-            spacing: 8 * scale,
-            runSpacing: 8 * scale,
+            spacing: 10 * scale,
+            runSpacing: 10 * scale,
             children: <Widget>[
               for (final String label in labels)
+                // [UI개선] 카드 선택 화면과 동일하게 진한 배경 + 두꺼운
+                // 강조색 테두리 + 흰 글자로 뚜렷하게 표시한다.
                 Chip(
                   label: Text(label),
-                  backgroundColor: Colors.white,
-                  side: const BorderSide(color: kCardBorder),
-                  labelStyle: const TextStyle(color: kWordButtonText),
+                  backgroundColor: kWordButtonSelectedBg,
+                  side: const BorderSide(
+                    color: kCardSelectedBorder,
+                    width: 2,
+                  ),
+                  labelStyle: const TextStyle(
+                    color: kWordButtonSelectedText,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
             ],
           ),

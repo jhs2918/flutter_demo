@@ -1,17 +1,33 @@
 import 'package:flutter/widgets.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-/// [낱말카드 개편] 앱 전체 글자 크기 배율(80%~200%, 10% 단위). 상태로만
-/// 유지하고 영구 저장(SharedPreferences 등)은 하지 않는다 - 앱을 다시 열면
-/// 기본값(100%)으로 돌아간다.
+/// [낱말카드 개편] 앱 전체 글자 크기 배율(80%~200%, 10% 단위). 바꿀 때마다
+/// SharedPreferences에 저장해, 앱을 다시 열어도 마지막에 골랐던 배율이
+/// 그대로 적용된다(main()에서 [restore]를 한 번 호출해 불러온다).
 class FontScaleController extends ChangeNotifier {
   static const double min = 0.8;
   static const double max = 2.0;
+  static const String _prefsKey = 'font_scale';
 
   double _scale = 1.0;
   double get scale => _scale;
 
   set scale(double value) {
     final double clamped = value.clamp(min, max);
+    if (clamped == _scale) return;
+    _scale = clamped;
+    notifyListeners();
+    SharedPreferences.getInstance().then(
+      (SharedPreferences prefs) => prefs.setDouble(_prefsKey, clamped),
+    );
+  }
+
+  /// 앱 시작 시 저장된 배율을 불러와 반영한다.
+  Future<void> restore() async {
+    final SharedPreferences prefs = await SharedPreferences.getInstance();
+    final double? saved = prefs.getDouble(_prefsKey);
+    if (saved == null) return;
+    final double clamped = saved.clamp(min, max);
     if (clamped == _scale) return;
     _scale = clamped;
     notifyListeners();

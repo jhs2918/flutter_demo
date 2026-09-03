@@ -34,12 +34,21 @@ class _GlossyChipState extends State<GlossyChip> {
   @override
   Widget build(BuildContext context) {
     final bool on = widget.selected;
-    final Color top = on ? const Color(0xFFFF7DAE) : const Color(0xFFFFFFFF);
+    // [UI개선] 선택 시 배경을 더 진한 톤으로 바꾸고, 선택 전/후 대비가
+    // 확실히 구분되게 한다. 글자색은 하드코딩하지 않고 배경 밝기(luminance)로
+    // 자동 계산해서 진한 배경엔 흰 글자, 연한 배경엔 어두운 글자가 오도록
+    // 한다.
+    final Color top = on ? const Color(0xFFEB4F89) : const Color(0xFFFFFFFF);
     final Color bottom = on
-        ? const Color(0xFFE83F7E)
+        ? const Color(0xFFB81656)
         : const Color(0xFFF7E4EC);
     final Color side = on ? const Color(0xFFC42260) : const Color(0xFFE5C2D2);
-    final Color fg = on ? Colors.white : const Color(0xFF7A3B54);
+    final double avgLuminance =
+        (top.computeLuminance() + bottom.computeLuminance()) / 2;
+    final Color fg =
+        avgLuminance > 0.5 ? const Color(0xFF7A3B54) : Colors.white;
+    // 선택되면 테두리를 2~3px로 두껍고 선명하게, 평소엔 얇게 유지한다.
+    final double borderWidth = on ? 3.0 : 1.5;
     // 옆면(side) 두께가 곧 "눌린 정도"다 - 누르는 중이면 가장 얇고(1.0),
     // 선택된 상태면 반쯤 눌린 채로 고정되며(2.5), 평소엔 5.0으로 가장
     // 도드라진다. margin top을 그만큼 더 줘서(offset) 버튼이 차지하는
@@ -70,7 +79,7 @@ class _GlossyChipState extends State<GlossyChip> {
             end: Alignment.bottomCenter,
             colors: <Color>[top, bottom],
           ),
-          border: Border.all(color: side, width: 1),
+          border: Border.all(color: side, width: borderWidth),
           boxShadow: <BoxShadow>[
             // [핵심] blurRadius는 반드시 0 - 흐리면 옆면이 아니라 평범한
             // 그림자로 보여서 입체감이 사라진다.
@@ -112,23 +121,35 @@ class _GlossyChipState extends State<GlossyChip> {
                 // 넘겨준, 화면 남은 공간만큼의 bounded maxWidth)를 그대로
                 // 채워버린다 - widthFactor: 1을 줘야 자식(Row) 크기만큼만
                 // 차지해서 Wrap이 글자 길이대로 여러 개를 한 줄에 배치할 수
-                // 있다. Row 안의 Text도 Flexible로 감싸면 같은 이유로 남은
-                // 공간을 다시 다 차지해버리므로 감싸지 않는다.
+                // 있다.
+                //
+                // [글자크기 확대 시 화면 밖으로 넘치는 문제 수정] Row 안의
+                // 일반 Text는 Row로부터 무제한 너비를 받기 때문에(Flutter의
+                // RenderFlex가 flex 없는 자식에게 주는 기본 동작) maxLines가
+                // 있어도 실제로는 절대 줄바꿈되지 않고 한 줄로 계속
+                // 늘어난다 - 글자가 커지면 카드 하나가 화면 너비를 넘어서
+                // RenderFlex 오버플로우가 났다. Flexible(기본 loose fit)로
+                // 감싸면 남는 공간을 억지로 다 채우지 않으면서도(짧은
+                // 라벨은 그대로 내용만큼만 차지) 실제 최대 너비가 생겨
+                // maxLines: 2가 제대로 동작한다 - Expanded와 달리 loose
+                // fit이라 짧은 라벨의 압축 배치는 그대로 유지된다.
                 child: Center(
                   widthFactor: 1,
                   heightFactor: 1,
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: <Widget>[
-                      Text(
-                        widget.label,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: fg,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 14 * widget.scale,
+                      Flexible(
+                        child: Text(
+                          widget.label,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            color: fg,
+                            fontWeight: FontWeight.w700,
+                            fontSize: 14 * widget.scale,
+                          ),
                         ),
                       ),
                       if (widget.isCustom) ...<Widget>[

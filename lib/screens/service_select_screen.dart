@@ -36,33 +36,47 @@ class ServiceSelectScreen extends StatelessWidget {
         children: <Widget>[
           const FontScaleBar(),
           Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: <Widget>[
-                  const Text(
-                    '어떤 서비스를 제공하시나요?',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w800,
-                      color: kCardTitleColor,
+            // [글자크기 확대 시 화면 밖으로 넘치는 문제 수정] 글자를 많이
+            // 키우면 두 서비스 버튼 + 안내 문구가 세로로 화면보다 커질 수
+            // 있다 - LayoutBuilder로 실제 남은 높이를 알아내 그보다 작을
+            // 때만 가운데 정렬하고, 넘치면 스크롤해서 잘리지 않고 끝까지
+            // 볼 수 있게 한다.
+            child: LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                return SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight - 48,
+                    ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: <Widget>[
+                        const Text(
+                          '어떤 서비스를 제공하시나요?',
+                          style: TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.w800,
+                            color: kCardTitleColor,
+                          ),
+                        ),
+                        const SizedBox(height: 32),
+                        _ServiceButton(
+                          label: '방문요양',
+                          emoji: '🏠',
+                          onTap: () => _select(context, CardService.visit),
+                        ),
+                        const SizedBox(height: 20),
+                        _ServiceButton(
+                          label: '주간보호',
+                          emoji: '🏢',
+                          onTap: () => _select(context, CardService.day),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 32),
-                  _ServiceButton(
-                    label: '방문요양',
-                    emoji: '🏠',
-                    onTap: () => _select(context, CardService.visit),
-                  ),
-                  const SizedBox(height: 20),
-                  _ServiceButton(
-                    label: '주간보호',
-                    emoji: '🏢',
-                    onTap: () => _select(context, CardService.day),
-                  ),
-                ],
-              ),
+                );
+              },
             ),
           ),
         ],

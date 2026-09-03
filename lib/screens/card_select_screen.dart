@@ -244,6 +244,26 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     return count;
   }
 
+  // [조치 재선택] 위 _observationSelectedCount와 같은 기준(조치·조치상황·
+  // 방향·부위 제외)으로, 이 카테고리 안에 상태(관찰) 선택이 하나라도
+  // 있는지만 본다 - 조치를 선택 안 했을 때 "어느 카테고리의 조치 그룹을
+  // 펼쳐줘야 하는지" 찾는 데 쓴다.
+  bool _hasObservationSelected(CardCategory category) {
+    for (final CardGroup group in _groupsFor(category)) {
+      if (group.name == _kCareLevelGroupName ||
+          group.name == '방향' ||
+          group.name == '부위' ||
+          _isActionGroupName(group.name)) {
+        continue;
+      }
+      for (final CardItem item in _itemsWithCustom(category, group)) {
+        if (item.isInputField) continue;
+        if (_selected.contains(_key(category, group, item))) return true;
+      }
+    }
+    return false;
+  }
+
   void _toggle(String key) {
     setState(() {
       if (_selected.contains(key)) {
@@ -545,6 +565,62 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
     return payload;
   }
 
+  // [조치 재선택] 결과 화면의 "다른 조치 선택하기"가 부르는 콜백. 지금
+  // 선택되어 있는 조치(action) 카드가 있으면 그것만 지우고 그 카테고리로
+  // 스크롤한다. 애초에 조치를 선택 안 했던 경우(AI가 상태만 보고 알아서
+  // 조치를 지어낸 경우, GUIDELINES[1] 규칙 b)라면 지울 게 없으니, 대신
+  // 상태(관찰)를 선택했던 첫 카테고리의 조치 그룹으로 스크롤해서 거기서
+  // 조치를 직접 고르게 한다.
+  void _pickDifferentAction() {
+    final List<String> actionKeys = _selected.where((String key) {
+      final List<String> parts = key.split('::');
+      return parts.length > 1 && _isActionGroupName(parts[1]);
+    }).toList();
+
+    String? categoryId;
+    if (actionKeys.isNotEmpty) {
+      categoryId = actionKeys.first.split('::').first;
+      setState(() => _selected.removeAll(actionKeys));
+    } else {
+      for (final CardCategory category in _visibleCategories) {
+        if (_hasObservationSelected(category)) {
+          categoryId = category.id;
+          break;
+        }
+      }
+    }
+    if (categoryId == null) return;
+
+    // ExpansionTile은 컨트롤러의 expand()도 onExpansionChanged로 받아
+    // _handleExpansion이 다른 카테고리를 접고 스크롤까지 처리해준다. 다만
+    // 이미 펼쳐진 상태였다면 expand()가 아무 변화도 안 일으켜 콜백이 안
+    // 불릴 수 있으니, 그 경우를 대비해 직접 한 번 더 스크롤해준다.
+    _expansionControllers[categoryId]?.expand();
+    final String targetCategoryId = categoryId;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final BuildContext? cardContext =
+          _categoryKeys[targetCategoryId]?.currentContext;
+      if (cardContext == null || !cardContext.mounted) return;
+      Scrollable.ensureVisible(
+        cardContext,
+        duration: const Duration(milliseconds: 300),
+        curve: Curves.easeInOut,
+        alignment: 0.0,
+      );
+    });
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          actionKeys.isNotEmpty
+              ? '조치 선택을 지웠어요. 다른 조치를 고른 뒤 다시 생성해주세요.'
+              : '조치 카드를 직접 고른 뒤 다시 생성해주세요.',
+        ),
+      ),
+    );
+  }
+
   bool get _hasAnyContent {
     if (_selected.isNotEmpty) return true;
     if (_opinionController.text.trim().isNotEmpty) return true;
@@ -622,6 +698,7 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
           onRegenerate: (String additionalRequest) => _aiRecordApi
               .generate(_buildPayload(additionalRequest: additionalRequest))
               .then((AiGeneratedRecord r) => r.texts.join(' ')),
+          onPickDifferentAction: _pickDifferentAction,
           onSave: _saveCombination,
           existingNames: _savedCombinations
               .map((SavedCardCombination c) => c.name)
@@ -670,14 +747,20 @@ class _CardSelectScreenState extends State<CardSelectScreen> {
                   ),
                   child: Row(
                     children: <Widget>[
-                      Text(
-                        '${widget.recordTypeLabel} · $_facilityLabel',
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: kSubHeaderColor,
+                      // [글자크기 확대 시 화면 밖으로 넘치는 문제 수정]
+                      // Spacer + 고정폭 Text 조합은 글자가 커지면 왼쪽
+                      // Text가 화면 밖으로 밀려날 수 있다 - Expanded로
+                      // 감싸 필요하면 2줄로 줄바꿈되게 한다.
+                      Expanded(
+                        child: Text(
+                          '${widget.recordTypeLabel} · $_facilityLabel',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: kSubHeaderColor,
+                          ),
                         ),
                       ),
-                      const Spacer(),
+                      const SizedBox(width: 8),
                       Text(
                         '선택 항목 ${_selected.length}개',
                         style: const TextStyle(
@@ -1318,14 +1401,18 @@ class _SelectedItemsBar extends StatelessWidget {
         children: <Widget>[
           Row(
             children: <Widget>[
-              Text(
-                '선택한 항목 (${labels.length}개)',
-                style: const TextStyle(
-                  fontWeight: FontWeight.w700,
-                  color: kCardTitleColor,
+              // [글자크기 확대 시 화면 밖으로 넘치는 문제 수정] Expanded로
+              // 감싸 글자가 커지면 2줄로 줄바꿈되게 한다(잘리거나 화면
+              // 밖으로 밀려나지 않음).
+              Expanded(
+                child: Text(
+                  '선택한 항목 (${labels.length}개)',
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: kCardTitleColor,
+                  ),
                 ),
               ),
-              const Spacer(),
               TextButton.icon(
                 onPressed: onClearAll,
                 icon: const Icon(Icons.delete_sweep, size: 18),
@@ -1338,13 +1425,28 @@ class _SelectedItemsBar extends StatelessWidget {
             constraints: BoxConstraints(maxHeight: 96 * scale),
             child: SingleChildScrollView(
               child: Wrap(
-                spacing: 8 * scale,
-                runSpacing: 8 * scale,
+                spacing: 10 * scale,
+                runSpacing: 10 * scale,
                 children: <Widget>[
                   for (final String label in labels)
+                    // [UI개선] 선택된 카드와 동일하게 진한 배경 + 두꺼운
+                    // 강조색 테두리 + 대비되는 흰 글자로 뚜렷하게 표시한다.
                     Chip(
                       label: Text(label),
-                      deleteIcon: const Icon(Icons.close, size: 18),
+                      labelStyle: const TextStyle(
+                        color: kWordButtonSelectedText,
+                        fontWeight: FontWeight.w700,
+                      ),
+                      backgroundColor: kWordButtonSelectedBg,
+                      side: const BorderSide(
+                        color: kCardSelectedBorder,
+                        width: 2,
+                      ),
+                      deleteIcon: const Icon(
+                        Icons.close,
+                        size: 18,
+                        color: kWordButtonSelectedText,
+                      ),
                       onDeleted: () => onRemove(label),
                     ),
                 ],

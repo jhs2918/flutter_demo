@@ -51,19 +51,21 @@ class _FontScaleBarState extends State<FontScaleBar> {
                         size: 20,
                       ),
                       const SizedBox(width: 8),
-                      const Text(
-                        '글자크기',
-                        style: TextStyle(
-                          fontWeight: FontWeight.w700,
-                          color: kCardTitleColor,
+                      // [글자크기 확대 시 화면 밖으로 넘치는 문제 수정] 글자가
+                      // 커지면 "글자크기 160%"가 한 줄에 다 안 들어갈 수
+                      // 있다 - Spacer + 고정폭 Text 조합 대신 Expanded로
+                      // 감싸 필요하면 2줄로 자연스럽게 줄바꿈되게 한다(잘리지
+                      // 않음).
+                      Expanded(
+                        child: Text(
+                          '글자크기 $percent%',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w700,
+                            color: kCardTitleColor,
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        '$percent%',
-                        style: const TextStyle(color: kSubHeaderColor),
-                      ),
-                      const Spacer(),
                       Icon(
                         _expanded ? Icons.expand_less : Icons.expand_more,
                         color: kAccentPurple,
@@ -95,8 +97,11 @@ class _FontScaleBarState extends State<FontScaleBar> {
                                   controller.scale = value,
                             ),
                           ),
-                          SizedBox(
-                            width: 52,
+                          // [글자크기 확대 시 잘리는 문제 수정] 고정폭
+                          // SizedBox 대신 최소폭만 지정해, 글자가 커져도
+                          // 잘리지 않고 필요한 만큼 넓어지게 한다.
+                          ConstrainedBox(
+                            constraints: const BoxConstraints(minWidth: 52),
                             child: Text(
                               '$percent%',
                               textAlign: TextAlign.end,
