@@ -1,17 +1,43 @@
 import 'package:flutter/material.dart';
 
 import '../models/card_catalog.dart';
+import '../services/onboarding_preferences.dart';
 import '../theme/pastel_palette.dart';
 import '../widgets/font_scale_bar.dart';
 import 'card_select_screen.dart';
+import 'onboarding_screen.dart';
 
 /// [상태변화일지 전용판] 방문요양/주간보호 서비스 종류를 고른다. 기록유형은
 /// 상태변화일지 하나뿐이라 별도 선택 화면 없이 바로 카드 선택 화면으로
 /// 넘어간다.
-class ServiceSelectScreen extends StatelessWidget {
+class ServiceSelectScreen extends StatefulWidget {
   const ServiceSelectScreen({super.key});
 
-  void _select(BuildContext context, CardService service) {
+  @override
+  State<ServiceSelectScreen> createState() => _ServiceSelectScreenState();
+}
+
+class _ServiceSelectScreenState extends State<ServiceSelectScreen> {
+  final OnboardingPreferences _onboardingPrefs = OnboardingPreferences();
+
+  @override
+  void initState() {
+    super.initState();
+    // 앱을 처음 켰을 때(또는 "다시 보지 않기"를 아직 안 눌렀을 때) 사용법
+    // 안내 화면을 자동으로 띄운다. build 도중에는 push할 수 없어 첫 프레임이
+    // 그려진 뒤로 미룬다.
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _maybeShowOnboarding(),
+    );
+  }
+
+  Future<void> _maybeShowOnboarding() async {
+    final bool shouldShow = await _onboardingPrefs.shouldShowOnLaunch();
+    if (!shouldShow || !mounted) return;
+    await showOnboardingScreen(context);
+  }
+
+  void _select(CardService service) {
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (BuildContext context) => CardSelectScreen(
@@ -31,6 +57,18 @@ class ServiceSelectScreen extends StatelessWidget {
         title: const Text('상태변화일지'),
         backgroundColor: kSectionHeaderBg,
         foregroundColor: Colors.white,
+        actions: <Widget>[
+          // [온보딩] 언제든 다시 볼 수 있게 메인 화면 상단에 상시 노출.
+          TextButton.icon(
+            onPressed: () => showOnboardingScreen(context),
+            style: TextButton.styleFrom(foregroundColor: Colors.white),
+            icon: const Icon(Icons.menu_book),
+            label: const Text(
+              '설명서',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+          ),
+        ],
       ),
       body: Column(
         children: <Widget>[
@@ -64,13 +102,13 @@ class ServiceSelectScreen extends StatelessWidget {
                         _ServiceButton(
                           label: '방문요양',
                           emoji: '🏠',
-                          onTap: () => _select(context, CardService.visit),
+                          onTap: () => _select(CardService.visit),
                         ),
                         const SizedBox(height: 20),
                         _ServiceButton(
                           label: '주간보호',
                           emoji: '🏢',
-                          onTap: () => _select(context, CardService.day),
+                          onTap: () => _select(CardService.day),
                         ),
                       ],
                     ),
